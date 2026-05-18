@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
@@ -86,6 +85,7 @@ function ReviewCard({ review }: { review: { id: string; author: string; content:
 }
 
 export function Detail() {
+  const [trailerPlaying, setTrailerPlaying] = useState(false);
   const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist } = useStore();
   const mediaType = (media as any)?.media_type as "movie" | "tv" | undefined;
   const { reviews } = useMediaReviews(media?.id ?? null, mediaType ?? "movie");
@@ -218,32 +218,33 @@ export function Detail() {
             {trailer && (
               <div>
                 <h3 className="text-white font-semibold mb-3">Trailer</h3>
-                <button
-                  onClick={() => {
-                    new WebviewWindow(`trailer-${trailer.key}`, {
-                      url: `https://www.youtube.com/watch?v=${trailer.key}&autoplay=1`,
-                      title: `${media.title || media.name} — Tráiler`,
-                      width: 1280,
-                      height: 720,
-                      center: true,
-                      resizable: true,
-                    });
-                  }}
-                  className="relative w-full rounded-2xl overflow-hidden border border-white/10 group block"
-                  style={{ paddingTop: "56.25%" }}
-                >
-                  <img
-                    src={`https://img.youtube.com/vi/${trailer.key}/maxresdefault.jpg`}
-                    onError={(e) => { (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`; }}
-                    alt="Trailer"
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform">
-                      <PlayCircle size={36} className="text-white fill-white" />
-                    </div>
-                  </div>
-                </button>
+                <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
+                  {trailerPlaying ? (
+                    <iframe
+                      className="absolute inset-0 w-full h-full"
+                      src={`https://www.youtube.com/embed/${trailer.key}?autoplay=1&rel=0`}
+                      allow="autoplay; fullscreen"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setTrailerPlaying(true)}
+                      className="absolute inset-0 w-full h-full group"
+                    >
+                      <img
+                        src={`https://img.youtube.com/vi/${trailer.key}/maxresdefault.jpg`}
+                        onError={(e) => { (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`; }}
+                        alt="Trailer"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform">
+                          <PlayCircle size={36} className="text-white fill-white" />
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
