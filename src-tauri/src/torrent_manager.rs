@@ -40,7 +40,7 @@ use axum::{
 use axum::http::{HeaderMap, StatusCode, header};
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, Api,
-    Session, SessionOptions,
+    Session, SessionOptions, PeerConnectionOptions,
     api::TorrentIdOrHash,
 };
 
@@ -627,9 +627,32 @@ impl TorrentManager {
         tokio::fs::create_dir_all(&cache_dir).await
             .context("Failed to create /tmp/streamdeck_cache")?;
 
+        // Public trackers: fallback cuando DHT falla (Windows Firewall bloquea UDP)
+        let trackers = [
+            "udp://open.demonii.com:1337/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://tracker.tiny-vps.com:6969/announce",
+            "udp://open.stealth.si:80/announce",
+            "udp://explodie.org:6969/announce",
+            "https://tracker.gbitt.info/announce",
+            "https://tracker.tamersunion.org/announce",
+        ]
+        .iter()
+        .filter_map(|u| u.parse::<url::Url>().ok())
+        .collect();
+
         let opts = SessionOptions {
-            listen_port_range: Some(6881..6890),
-            enable_upnp_port_forwarding: true,
+            listen_port_range: Some(6881..6900),
+            // UPnP puede colgar en Windows si el router no responde — lo desactivamos
+            enable_upnp_port_forwarding: false,
+            trackers,
+            peer_opts: Some(PeerConnectionOptions {
+                connect_timeout: Some(std::time::Duration::from_secs(10)),
+                read_write_timeout: Some(std::time::Duration::from_secs(30)),
+                keep_alive_interval: Some(std::time::Duration::from_secs(20)),
+            }),
             ..SessionOptions::default()
         };
         let session = Session::new_with_opts(cache_dir.clone(), opts)
