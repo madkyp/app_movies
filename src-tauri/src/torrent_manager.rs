@@ -1,11 +1,35 @@
 use anyhow::Context;
 
-fn ffmpeg_bin() -> String {
-    std::env::var("STREAMDECK_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_string())
+// Inicializado en lib.rs setup() con app.path().resource_dir()
+pub static RESOURCE_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+fn ff_bin(name: &str) -> std::path::PathBuf {
+    let fname = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
+    // 1. Bundle instalado (resource_dir)
+    if let Some(dir) = RESOURCE_DIR.get() {
+        let c = dir.join(&fname);
+        if c.exists() { return c; }
+    }
+    // 2. Junto al exe / resources/
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for c in [dir.join(&fname), dir.join("resources").join(&fname)] {
+                if c.exists() { return c; }
+            }
+        }
+    }
+    // 3. PATH del sistema (dev / instalación global)
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let c = dir.join(&fname);
+            if c.exists() { return c; }
+        }
+    }
+    std::path::PathBuf::from(name)
 }
-fn ffprobe_bin() -> String {
-    std::env::var("STREAMDECK_FFPROBE").unwrap_or_else(|_| "ffprobe".to_string())
-}
+
+fn ffmpeg_bin() -> std::path::PathBuf { ff_bin("ffmpeg") }
+fn ffprobe_bin() -> std::path::PathBuf { ff_bin("ffprobe") }
 use axum::{
     Router,
     body::Body,

@@ -35,19 +35,9 @@ pub fn run() {
                 torrent_manager: Arc::new(manager),
             });
 
-            // On Windows, resolve bundled binary paths and expose via env vars
-            // so ffmpeg/ffprobe/mpv helpers can find them without AppHandle access.
-            #[cfg(target_os = "windows")]
-            if let Ok(resource_dir) = app.path().resource_dir() {
-                for bin in &["ffmpeg", "ffprobe", "mpv"] {
-                    let path = resource_dir.join(format!("{}.exe", bin));
-                    if path.exists() {
-                        std::env::set_var(
-                            format!("STREAMDECK_{}", bin.to_uppercase()),
-                            path.to_string_lossy().as_ref(),
-                        );
-                    }
-                }
+            // Guardar resource_dir para que ff_bin() / mpv_bin() encuentren los binarios del bundle
+            if let Ok(dir) = app.path().resource_dir() {
+                torrent_manager::RESOURCE_DIR.set(dir).ok();
             }
 
             log::info!("StreamDeck started");
