@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp } from "lucide-react";
+import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
+import { open } from "@tauri-apps/plugin-shell";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
@@ -216,15 +217,23 @@ export function Detail() {
             {trailer && (
               <div>
                 <h3 className="text-white font-semibold mb-3">Trailer</h3>
-                <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
-                  <iframe
-                    className="absolute inset-0 w-full h-full"
-                    src={`https://www.youtube-nocookie.com/embed/${trailer.key}?rel=0&modestbranding=1`}
-                    allow="autoplay; encrypted-media; fullscreen"
-                    allowFullScreen
-                    title="Trailer"
+                <button
+                  onClick={() => open(`https://www.youtube.com/watch?v=${trailer.key}`)}
+                  className="relative w-full rounded-2xl overflow-hidden border border-white/10 group block"
+                  style={{ paddingTop: "56.25%" }}
+                >
+                  <img
+                    src={`https://img.youtube.com/vi/${trailer.key}/maxresdefault.jpg`}
+                    onError={(e) => { (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`; }}
+                    alt="Trailer"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
-                </div>
+                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform">
+                      <PlayCircle size={36} className="text-white fill-white" />
+                    </div>
+                  </div>
+                </button>
               </div>
             )}
 
