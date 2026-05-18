@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store/useStore";
-import { useMediaDetail } from "../hooks/useTmdb";
+import { useMediaDetail, TMDB_FALLBACK_KEY } from "../hooks/useTmdb";
 import { MediaCard } from "../components/catalog/MediaCard";
 import { Spinner } from "../components/ui/Spinner";
 import { TMDB_BASE_URL } from "../lib/utils";
@@ -27,11 +27,11 @@ export function Series() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    if (!settings.tmdbApiKey) return;
+    const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
     setLoading(true);
     const genreParam = genre ? `&with_genres=${genre}` : "";
     fetch(
-      `${TMDB_BASE_URL}/discover/tv?api_key=${settings.tmdbApiKey}&language=es-ES&sort_by=popularity.desc&page=${page}${genreParam}`
+      `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&language=es-ES&sort_by=popularity.desc&page=${page}${genreParam}`
     )
       .then((r) => r.json())
       .then((d) => setSeries(d.results.map((m: Media) => ({ ...m, media_type: "tv" as const }))))

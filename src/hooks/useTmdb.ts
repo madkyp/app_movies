@@ -3,7 +3,8 @@ import { TMDB_BASE_URL } from "../lib/utils";
 import { useStore } from "../store/useStore";
 import type { Media, MediaDetail, Episode, Review } from "../types";
 
-const FALLBACK_KEY = import.meta.env.VITE_TMDB_KEY ?? "14aa1963b6c809078a17bd39f37a08e8";
+export const TMDB_FALLBACK_KEY = import.meta.env.VITE_TMDB_KEY ?? "14aa1963b6c809078a17bd39f37a08e8";
+const FALLBACK_KEY = TMDB_FALLBACK_KEY;
 
 function useApiKey() {
   const stored = useStore((s) => s.settings.tmdbApiKey);
