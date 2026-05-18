@@ -50,8 +50,9 @@ fn mpv_bin() -> std::path::PathBuf {
     std::path::PathBuf::from(fname)
 }
 
+#[cfg(not(windows))]
 fn smbclient_bin() -> &'static str {
-    "smbclient" // Linux only; Windows uses native SMB
+    "smbclient"
 }
 
 // ─── Shared State ─────────────────────────────────────────────────────────────
@@ -1623,10 +1624,12 @@ fn is_media_ext(ext: &str) -> bool {
 #[tauri::command]
 pub async fn browse_folder(path: String) -> Result<Vec<FolderEntry>, String> {
     if path.starts_with("smb://") {
-        browse_via_smbclient(&path).await
-    } else {
-        browse_local_path(&path).await
+        #[cfg(windows)]
+        return browse_via_smb_windows(&path).await;
+        #[cfg(not(windows))]
+        return browse_via_smbclient(&path).await;
     }
+    browse_local_path(&path).await
 }
 
 async fn browse_local_path(path: &str) -> Result<Vec<FolderEntry>, String> {
@@ -1677,7 +1680,7 @@ fn parse_smb_url(url: &str) -> (String, String, String, String, String) {
     (user, pass, host, share, subpath)
 }
 
-// Build smbclient args common to all calls: protocol options + optional credentials
+#[cfg(not(windows))]
 fn smb_auth_args(user: &str, pass: &str) -> Vec<String> {
     let mut args = vec![
         "--option=client min protocol=SMB2".to_string(),
@@ -1692,6 +1695,7 @@ fn smb_auth_args(user: &str, pass: &str) -> Vec<String> {
     args
 }
 
+#[cfg(not(windows))]
 async fn browse_via_smbclient(url: &str) -> Result<Vec<FolderEntry>, String> {
     let (user, pass, host, share, subpath) = parse_smb_url(url);
     if host.is_empty() {
@@ -1704,6 +1708,7 @@ async fn browse_via_smbclient(url: &str) -> Result<Vec<FolderEntry>, String> {
     }
 }
 
+#[cfg(not(windows))]
 async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> Result<Vec<FolderEntry>, String> {
     let mut args: Vec<String> = vec!["-L".to_string(), format!("//{}", host), "-g".to_string()];
     args.extend(smb_auth_args(user, pass));
@@ -1751,8 +1756,7 @@ async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> 
     Ok(entries)
 }
 
-// Parse a smbclient "ls" output line → (name, is_dir)
-// Format: "  name...  ATTRS  size  weekday month day time year"
+#[cfg(not(windows))]
 fn parse_smb_ls_line(line: &str) -> Option<(String, bool)> {
     if !line.starts_with("  ") { return None; }
     let tokens: Vec<&str> = line.split_whitespace().collect();
@@ -1768,6 +1772,7 @@ fn parse_smb_ls_line(line: &str) -> Option<(String, bool)> {
     Some((name, attrs.contains('D')))
 }
 
+#[cfg(not(windows))]
 async fn smb_list_files(host: &str, share: &str, subpath: &str, user: &str, pass: &str, base_url: &str) -> Result<Vec<FolderEntry>, String> {
     // "cd subpath; ls" to list directory contents.
     // "ls subpath" only shows the entry itself, not its children.
@@ -1831,11 +1836,143 @@ async fn smb_list_files(host: &str, share: &str, subpath: &str, user: &str, pass
     Ok(entries)
 }
 
+// ─── Windows SMB (rutas UNC + net use para auth) ──────────────────────────────
+
+/// Convierte smb://host/share/sub → \\host\share\sub
+#[cfg(windows)]
+fn smb_to_unc(host: &str, share: &str, subpath: &str) -> String {
+    if share.is_empty() {
+        format!(r"\\{}", host)
+    } else if subpath.is_empty() {
+        format!(r"\\{}\{}", host, share)
+    } else {
+        format!(r"\\{}\{}\{}", host, share, subpath.replace('/', r"\"))
+    }
+}
+
+/// Autentica contra el servidor con `net use \\host\IPC$`
+#[cfg(windows)]
+async fn smb_authenticate_windows(host: &str, user: &str, pass: &str) -> Result<(), String> {
+    let target = format!(r"\\{}\IPC$", host);
+    let mut args = vec!["use".to_string(), target];
+    if user.is_empty() {
+        args.push("/user:".to_string());
+        args.push(String::new());
+    } else {
+        args.push(pass.to_string());
+        args.push(format!("/user:{}", user));
+    }
+    args.push("/persistent:no".to_string());
+
+    let out = tokio::process::Command::new("net")
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| format!("net use falló: {e}"))?;
+
+    if !out.status.success() {
+        let msg = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        // "Multiple connections" = ya autenticado, está bien
+        if msg.contains("1219") || msg.contains("multiple connections") || msg.contains("multiple") { return Ok(()); }
+        if msg.contains("1326") || msg.contains("Logon failure") || msg.contains("denegado") {
+            return Err("Credenciales incorrectas.".to_string());
+        }
+        return Err(format!("Error de autenticación SMB: {}", msg.trim()));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+async fn browse_via_smb_windows(url: &str) -> Result<Vec<FolderEntry>, String> {
+    let (user, pass, host, share, subpath) = parse_smb_url(url);
+    if host.is_empty() { return Err("URL SMB inválida".to_string()); }
+
+    if !user.is_empty() || !pass.is_empty() {
+        smb_authenticate_windows(&host, &user, &pass).await?;
+    }
+
+    // Sin share → listar shares del servidor con `net view \\host /all`
+    if share.is_empty() {
+        let out = tokio::process::Command::new("net")
+            .args(["view", &format!(r"\\{}", host), "/all"])
+            .output().await
+            .map_err(|e| format!("net view falló: {e}"))?;
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let base = url.trim_end_matches('/');
+        let entries: Vec<FolderEntry> = stdout.lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 2 { return None; }
+                let kind = parts.get(1)?;
+                if !kind.eq_ignore_ascii_case("Disk") && !kind.eq_ignore_ascii_case("Disco") { return None; }
+                let name = parts[0].to_string();
+                Some(FolderEntry { path: format!("{}/{}", base, name), name, is_dir: true, size: String::new(), extension: String::new() })
+            })
+            .collect();
+
+        return if entries.is_empty() {
+            Err("No se encontraron recursos compartidos.".to_string())
+        } else {
+            Ok(entries)
+        };
+    }
+
+    // Con share → leer directorio via UNC
+    let unc = smb_to_unc(&host, &share, &subpath);
+    let base = url.trim_end_matches('/');
+    let mut dir = tokio::fs::read_dir(&unc).await
+        .map_err(|e| format!("No se puede acceder a {unc}: {e}"))?;
+
+    let mut entries = Vec::new();
+    while let Some(entry) = dir.next_entry().await.map_err(|e| e.to_string())? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') { continue; }
+        let Ok(meta) = entry.metadata().await else { continue };
+        let is_dir = meta.is_dir();
+        let ext = if is_dir { String::new() } else {
+            std::path::Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase()
+        };
+        if !is_dir && !is_media_ext(&ext) { continue; }
+        entries.push(FolderEntry { path: format!("{}/{}", base, name), name, is_dir, size: String::new(), extension: ext });
+    }
+    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    Ok(entries)
+}
+
 /// Start downloading an SMB file to /tmp cache and return the local path once
 /// enough data is available to start playback. The download continues in the
 /// background so ffmpeg can read the growing file while it downloads.
 #[tauri::command]
 pub async fn fetch_smb_to_cache(url: String) -> Result<String, String> {
+    #[cfg(windows)]
+    return fetch_smb_to_cache_windows(&url).await;
+    #[cfg(not(windows))]
+    return fetch_smb_to_cache_linux(url).await;
+}
+
+/// Windows: accede al archivo directo via ruta UNC (mpv/ffmpeg las soportan nativamente)
+#[cfg(windows)]
+async fn fetch_smb_to_cache_windows(url: &str) -> Result<String, String> {
+    let (user, pass, host, share, subpath) = parse_smb_url(url);
+    if host.is_empty() || share.is_empty() || subpath.is_empty() {
+        return Err("URL SMB inválida: se necesita smb://[user:pass@]host/share/archivo".to_string());
+    }
+
+    if !user.is_empty() || !pass.is_empty() {
+        smb_authenticate_windows(&host, &user, &pass).await?;
+    }
+
+    let unc = smb_to_unc(&host, &share, &subpath);
+    // mpv y ffmpeg soportan rutas UNC en Windows — no necesitamos copiar
+    if !std::path::Path::new(&unc).exists() {
+        return Err(format!("No se puede acceder a: {unc}"));
+    }
+    Ok(unc)
+}
+
+#[cfg(not(windows))]
+async fn fetch_smb_to_cache_linux(url: String) -> Result<String, String> {
     let (user, pass, host, share, subpath) = parse_smb_url(&url);
     if host.is_empty() || share.is_empty() || subpath.is_empty() {
         return Err("URL SMB inválida: se necesita smb://[user:pass@]host/share/archivo".to_string());
