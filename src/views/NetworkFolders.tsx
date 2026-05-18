@@ -8,8 +8,6 @@ import { useStore } from "../store/useStore";
 import { cn } from "../lib/utils";
 import type { FolderEntry, SavedFolder } from "../types";
 
-const SERVER = "http://127.0.0.1:7777";
-
 const VIDEO_EXTS = new Set(["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "webm", "m2ts", "mpg", "mpeg"]);
 const AUDIO_EXTS = new Set(["flac", "mp3", "aac", "m4a", "ogg", "wav", "opus"]);
 
@@ -52,8 +50,6 @@ export function NetworkFolders() {
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   const isSmb = addPath.trimStart().startsWith("smb://");
-
-  const currentPath = browseStack.length > 0 ? browseStack[browseStack.length - 1].path : null;
 
   // Load saved folders on mount
   useEffect(() => {
