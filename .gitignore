@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Windows bundled binaries (downloaded in CI, not committed)
+src-tauri/binaries/*.exe
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe",
+      "binaries/mpv"
+    ],
+    "targets": ["msi", "nsis"]
+  }
+}

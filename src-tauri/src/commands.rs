@@ -3,6 +3,18 @@ use tauri::State;
 use crate::torrent_manager::{TorrentManager, TorrentStreamInfo, TorrentStats};
 use std::sync::Arc;
 
+// ─── Binary path helpers ──────────────────────────────────────────────────────
+// On Windows, binaries are bundled and paths set via env vars at startup.
+// On Linux, fall back to system PATH.
+
+fn mpv_bin() -> String {
+    std::env::var("STREAMDECK_MPV").unwrap_or_else(|_| "mpv".to_string())
+}
+
+fn smbclient_bin() -> String {
+    "smbclient".to_string() // Linux only; Windows uses native SMB
+}
+
 // ─── Shared State ─────────────────────────────────────────────────────────────
 
 pub struct AppState {
@@ -58,7 +70,7 @@ pub async fn stop_torrent(
 
 #[tauri::command]
 pub async fn open_in_mpv(url: String, title: String) -> Result<(), String> {
-    tokio::process::Command::new("mpv")
+    tokio::process::Command::new(mpv_bin())
         .args([
             &url,
             &format!("--title={}", title),
@@ -1657,7 +1669,7 @@ async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> 
     let mut args: Vec<String> = vec!["-L".to_string(), format!("//{}", host), "-g".to_string()];
     args.extend(smb_auth_args(user, pass));
 
-    let out = tokio::process::Command::new("smbclient")
+    let out = tokio::process::Command::new(smbclient_bin())
         .args(&args)
         .output()
         .await
@@ -1731,7 +1743,7 @@ async fn smb_list_files(host: &str, share: &str, subpath: &str, user: &str, pass
     let mut args: Vec<String> = vec![format!("//{}/{}", host, share), "-c".to_string(), ls_cmd];
     args.extend(smb_auth_args(user, pass));
 
-    let out = tokio::process::Command::new("smbclient")
+    let out = tokio::process::Command::new(smbclient_bin())
         .args(&args)
         .output()
         .await
@@ -1832,7 +1844,7 @@ pub async fn fetch_smb_to_cache(url: String) -> Result<String, String> {
         "ls".to_string(),
     ];
     check_args.extend(smb_auth_args(&user, &pass));
-    let check = tokio::process::Command::new("smbclient")
+    let check = tokio::process::Command::new(smbclient_bin())
         .args(&check_args)
         .output()
         .await
@@ -1850,7 +1862,7 @@ pub async fn fetch_smb_to_cache(url: String) -> Result<String, String> {
     // Start the actual download in the background.
     let cache_path_bg = cache_path.clone();
     tokio::spawn(async move {
-        tokio::process::Command::new("smbclient")
+        tokio::process::Command::new(smbclient_bin())
             .args(&args)
             .status()
             .await

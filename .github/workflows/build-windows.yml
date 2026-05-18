@@ -31,8 +31,42 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download ffmpeg & ffprobe (Windows)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
+          $bin = Get-ChildItem -Recurse ffmpeg_extract -Name "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item "ffmpeg_extract\$bin" "src-tauri\binaries\ffmpeg-x86_64-pc-windows-msvc.exe"
+          $bin = Get-ChildItem -Recurse ffmpeg_extract -Name "ffprobe.exe" | Select-Object -First 1
+          Copy-Item "ffmpeg_extract\$bin" "src-tauri\binaries\ffprobe-x86_64-pc-windows-msvc.exe"
+
+      - name: Download mpv (Windows)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/latest/download/mpv-x86_64-v3-20250101.7z"
+          # Use winget or choco as fallback — simpler: use chocolatey
+          choco install mpv -y --no-progress 2>$null || true
+          $mpvExe = Get-Command mpv -ErrorAction SilentlyContinue
+          if ($mpvExe) {
+            Copy-Item $mpvExe.Source "src-tauri\binaries\mpv-x86_64-pc-windows-msvc.exe"
+          } else {
+            # Download from shinchiro releases page
+            $apiUrl = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+            $rel = Invoke-RestMethod -Uri $apiUrl -Headers @{Accept="application/vnd.github+json"}
+            $asset = $rel.assets | Where-Object { $_.name -match "mpv-x86_64-v3-.*\.7z$" } | Select-Object -First 1
+            if (-not $asset) {
+              $asset = $rel.assets | Where-Object { $_.name -match "mpv-x86_64-.*\.7z$" } | Select-Object -First 1
+            }
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mpv.7z
+            7z x mpv.7z -ompv_extract -y
+            $mpvExe = Get-ChildItem -Recurse mpv_extract -Name "mpv.exe" | Select-Object -First 1
+            Copy-Item "mpv_extract\$mpvExe" "src-tauri\binaries\mpv-x86_64-pc-windows-msvc.exe"
+          }
+
       - name: Build
-        run: npm run tauri build
+        run: npm run tauri build -- --config src-tauri/tauri.windows.conf.json
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
 
