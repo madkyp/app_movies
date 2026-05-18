@@ -7,8 +7,11 @@ const DEFAULT_PLEX_TOKEN = "WJcJdsyCc68r29CCvRtP";
 
 export function usePlexConfig() {
   const settings = useStore((s) => s.settings);
-  const plexUrl   = settings?.plexUrl   || DEFAULT_PLEX_URL;
-  const plexToken = settings?.plexToken || DEFAULT_PLEX_TOKEN;
+  // "none" = usuario desactivó explícitamente el servidor
+  const raw        = settings?.plexUrl   ?? "";
+  const rawToken   = settings?.plexToken ?? "";
+  const plexUrl    = raw      === "none" ? "" : (raw      || DEFAULT_PLEX_URL);
+  const plexToken  = rawToken === "none" ? "" : (rawToken || DEFAULT_PLEX_TOKEN);
   return { plexUrl: plexUrl.replace(/\/$/, ""), plexToken };
 }
 

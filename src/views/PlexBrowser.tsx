@@ -4,6 +4,7 @@ import {
   Loader2, AlertCircle, Tv, Film, ChevronRight,
 } from "lucide-react";
 import { usePlexLibraries, usePlexLibraryItems, usePlexChildren, usePlexConfig, plexAssetUrl, plexStreamUrl } from "../hooks/usePlex";
+import { useStore } from "../store/useStore";
 import { cn } from "../lib/utils";
 import type { PlexLibrary, PlexItem } from "../types";
 
@@ -295,6 +296,7 @@ function SeasonRow({
 
 export function PlexBrowser() {
   const { plexUrl, plexToken } = usePlexConfig();
+  const updateSettings = useStore((s) => s.updateSettings);
 
   const [activeLibrary, setActiveLibrary] = useState<PlexLibrary | null>(null);
   const [selectedShow, setSelectedShow] = useState<PlexItem | null>(null);
@@ -404,9 +406,17 @@ export function PlexBrowser() {
                       : `Error del servidor: ${libError}`}
                   </p>
                 </div>
-                <button onClick={refetch} className="btn-ghost border border-border text-sm">
-                  <Loader2 size={14} /> Reintentar
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={refetch} className="btn-ghost border border-border text-sm">
+                    <Loader2 size={14} /> Reintentar
+                  </button>
+                  <button
+                    onClick={() => updateSettings({ plexUrl: "none", plexToken: "none" })}
+                    className="btn-ghost border border-red-500/40 text-red-400 text-sm"
+                  >
+                    Quitar servidor
+                  </button>
+                </div>
               </div>
             )}
             {!loadingLibs && !libError && (
