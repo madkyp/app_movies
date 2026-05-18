@@ -153,7 +153,9 @@ info "Preparando repositorio en $APP_DIR..."
 
 if [ -d "$APP_DIR/.git" ]; then
     info "Actualizando repositorio existente..."
-    git -C "$APP_DIR" pull --ff-only || warn "No se pudo actualizar el repo, usando versión local."
+    git -C "$APP_DIR" fetch origin \
+        && git -C "$APP_DIR" reset --hard origin/main \
+        || die "Falló la actualización del repositorio."
 else
     git clone "$REPO" "$APP_DIR" || die "Falló la clonación del repositorio."
 fi
@@ -164,7 +166,7 @@ info "Instalando dependencias npm..."
 npm install || die "Falló npm install."
 
 info "Compilando (esto puede tardar 5-10 minutos)..."
-npm run tauri build || die "Falló la compilación."
+./node_modules/.bin/tauri build || die "Falló la compilación."
 
 success "Compilación completada."
 
