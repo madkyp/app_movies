@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-set -e
 
 # ─────────────────────────────────────────────────────────────
 #  TheFoundry StreamDeck — Instalador para Linux
-#  Compilación desde fuente
 # ─────────────────────────────────────────────────────────────
 
 REPO="https://github.com/madkyp/app_movies.git"
@@ -11,241 +9,183 @@ APP_DIR="$HOME/.local/share/streamdeck"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
-BOLD="\033[1m"
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
 RED="\033[1;31m"
 BLUE="\033[1;34m"
+BOLD="\033[1m"
 RESET="\033[0m"
 
 info()    { echo -e "${BLUE}▶${RESET} $*"; }
 success() { echo -e "${GREEN}✔${RESET} $*"; }
 warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
-error()   { echo -e "${RED}✘ Error:${RESET} $*"; exit 1; }
-header()  { echo -e "\n${BOLD}$*${RESET}\n"; }
+die()     { echo -e "${RED}✘ Error:${RESET} $*"; exit 1; }
 
-# ── Detectar distro ──────────────────────────────────────────
+echo ""
+echo -e "${BOLD}  ╔══════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}  ║   TheFoundry StreamDeck Installer    ║${RESET}"
+echo -e "${BOLD}  ╚══════════════════════════════════════╝${RESET}"
+echo ""
+echo "  Compilando desde fuente (~500MB, 5-10 min)"
+echo ""
 
-detect_distro() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO_ID="${ID}"
-        DISTRO_ID_LIKE="${ID_LIKE:-}"
-    else
-        error "No se puede detectar la distribución. /etc/os-release no encontrado."
-    fi
-}
+# ── 1. Detectar distro ───────────────────────────────────────
 
-is_like() {
-    echo "$DISTRO_ID $DISTRO_ID_LIKE" | grep -qw "$1"
-}
+info "Detectando distribución..."
 
-# ── Instalar dependencias del sistema ────────────────────────
+if [ ! -f /etc/os-release ]; then
+    die "/etc/os-release no encontrado. Distribución no soportada."
+fi
 
-install_deps_arch() {
-    info "Instalando dependencias (pacman)..."
+DISTRO_ID=$(grep "^ID=" /etc/os-release | cut -d= -f2 | tr -d '"')
+DISTRO_LIKE=$(grep "^ID_LIKE=" /etc/os-release | cut -d= -f2 | tr -d '"')
+
+success "Distribución: $DISTRO_ID ${DISTRO_LIKE:+(like: $DISTRO_LIKE)}"
+
+is_like() { echo "$DISTRO_ID $DISTRO_LIKE" | grep -qw "$1"; }
+
+# ── 2. Dependencias del sistema ──────────────────────────────
+
+echo ""
+info "Instalando dependencias del sistema..."
+
+if is_like arch || [ "$DISTRO_ID" = "arch" ] || [ "$DISTRO_ID" = "cachyos" ] || [ "$DISTRO_ID" = "manjaro" ]; then
     sudo pacman -Sy --needed --noconfirm \
-        base-devel \
-        webkit2gtk-4.1 \
-        gtk3 \
-        openssl \
-        appmenu-gtk-module \
-        libappindicator-gtk3 \
-        librsvg \
-        xdotool \
-        ffmpeg \
-        mpv \
-        samba \
-        curl \
-        git
-}
+        base-devel git curl \
+        webkit2gtk-4.1 gtk3 openssl \
+        appmenu-gtk-module libappindicator-gtk3 librsvg xdotool \
+        ffmpeg mpv samba \
+        || die "Falló la instalación de dependencias con pacman."
 
-install_deps_debian() {
-    info "Actualizando índice de paquetes..."
-    sudo apt-get update -qq
-
-    info "Instalando dependencias (apt)..."
+elif is_like debian || is_like ubuntu || [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "linuxmint" ]; then
+    sudo apt-get update -qq \
+        || die "Falló apt-get update."
     sudo apt-get install -y \
-        build-essential \
-        curl \
-        git \
-        libwebkit2gtk-4.1-dev \
-        libssl-dev \
-        libgtk-3-dev \
-        libayatana-appindicator3-dev \
-        librsvg2-dev \
-        libxdo-dev \
-        patchelf \
-        ffmpeg \
-        mpv \
-        smbclient
-}
+        build-essential git curl \
+        libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
+        libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf \
+        ffmpeg mpv smbclient \
+        || die "Falló la instalación de dependencias con apt."
 
-install_deps_fedora() {
-    info "Instalando dependencias (dnf)..."
+elif is_like fedora || is_like rhel || [ "$DISTRO_ID" = "fedora" ]; then
     sudo dnf install -y \
-        @development-tools \
-        curl \
-        git \
-        webkit2gtk4.1-devel \
-        openssl-devel \
-        gtk3-devel \
-        libappindicator-gtk3-devel \
-        librsvg2-devel \
-        libxdo-devel \
-        ffmpeg \
-        mpv \
-        samba-client
-}
+        @development-tools git curl \
+        webkit2gtk4.1-devel openssl-devel gtk3-devel \
+        libappindicator-gtk3-devel librsvg2-devel libxdo-devel \
+        ffmpeg mpv samba-client \
+        || die "Falló la instalación de dependencias con dnf."
 
-install_deps_opensuse() {
-    info "Instalando dependencias (zypper)..."
+elif is_like opensuse || is_like suse || [ "$DISTRO_ID" = "opensuse-tumbleweed" ]; then
     sudo zypper install -y \
-        gcc \
-        gcc-c++ \
-        make \
-        curl \
-        git \
-        webkit2gtk3-soup2-devel \
-        libopenssl-devel \
-        gtk3-devel \
-        libappindicator3-1 \
-        librsvg-devel \
-        ffmpeg \
-        mpv \
-        samba-client
-}
+        gcc gcc-c++ make git curl \
+        webkit2gtk3-soup2-devel libopenssl-devel gtk3-devel \
+        libappindicator3-1 librsvg-devel \
+        ffmpeg mpv samba-client \
+        || die "Falló la instalación de dependencias con zypper."
 
-install_system_deps() {
-    header "1/5  Dependencias del sistema"
+else
+    die "Distribución '$DISTRO_ID' no soportada.\nCompatibles: Arch/CachyOS/Manjaro, Ubuntu 22.04+, Debian 12+, Fedora 38+, openSUSE."
+fi
 
-    if is_like arch; then
-        install_deps_arch
-    elif is_like debian || is_like ubuntu; then
-        install_deps_debian
-    elif is_like fedora || is_like rhel; then
-        install_deps_fedora
-    elif is_like opensuse || is_like suse; then
-        install_deps_opensuse
-    else
-        error "Distribución no soportada: $DISTRO_ID\nDistros compatibles: Arch, Ubuntu/Debian, Fedora, openSUSE"
-    fi
+success "Dependencias del sistema instaladas."
 
-    success "Dependencias del sistema instaladas."
-}
+# ── 3. Rust ──────────────────────────────────────────────────
 
-# ── Instalar Rust ────────────────────────────────────────────
+echo ""
+info "Comprobando Rust..."
 
-install_rust() {
-    header "2/5  Rust"
+export PATH="$HOME/.cargo/bin:$PATH"
 
-    if command -v rustc &>/dev/null; then
-        RUST_VER=$(rustc --version | awk '{print $2}')
-        success "Rust ya instalado (v$RUST_VER)"
-    else
-        info "Instalando Rust via rustup..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-        export PATH="$HOME/.cargo/bin:$PATH"
-        success "Rust instalado."
-    fi
-
-    # Asegurar que cargo está en PATH
+if ! command -v rustc &>/dev/null; then
+    info "Instalando Rust via rustup..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --no-modify-path \
+        || die "Falló la instalación de Rust."
     export PATH="$HOME/.cargo/bin:$PATH"
+fi
 
-    # Verificar versión mínima
-    RUST_VER=$(rustc --version | awk '{print $2}')
-    RUST_MAJOR=$(echo "$RUST_VER" | cut -d. -f1)
-    RUST_MINOR=$(echo "$RUST_VER" | cut -d. -f2)
-    if [ "$RUST_MAJOR" -lt 1 ] || { [ "$RUST_MAJOR" -eq 1 ] && [ "$RUST_MINOR" -lt 77 ]; }; then
-        info "Actualizando Rust a la versión más reciente..."
-        rustup update stable
+RUST_VER=$(rustc --version 2>/dev/null | awk '{print $2}')
+success "Rust $RUST_VER listo."
+
+RUST_MINOR=$(echo "$RUST_VER" | cut -d. -f2)
+if [ "${RUST_MINOR:-0}" -lt 77 ]; then
+    info "Actualizando Rust..."
+    rustup update stable || warn "No se pudo actualizar Rust, continuando..."
+fi
+
+# ── 4. Node.js ───────────────────────────────────────────────
+
+echo ""
+info "Comprobando Node.js..."
+
+NODE_OK=false
+if command -v node &>/dev/null; then
+    NODE_MAJOR=$(node --version | tr -d 'v' | cut -d. -f1)
+    if [ "${NODE_MAJOR:-0}" -ge 20 ]; then
+        success "Node.js $(node --version) listo."
+        NODE_OK=true
     fi
-}
+fi
 
-# ── Instalar Node.js ─────────────────────────────────────────
-
-install_node() {
-    header "3/5  Node.js"
-
-    if command -v node &>/dev/null; then
-        NODE_VER=$(node --version | tr -d 'v')
-        NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
-        if [ "$NODE_MAJOR" -ge 20 ]; then
-            success "Node.js ya instalado (v$NODE_VER)"
-            return
-        else
-            warn "Node.js v$NODE_VER es demasiado antiguo. Se instalará v20 via nvm."
-        fi
-    fi
-
-    if ! command -v nvm &>/dev/null && [ ! -f "$HOME/.nvm/nvm.sh" ]; then
-        info "Instalando nvm..."
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash </dev/tty
-    fi
-
+if [ "$NODE_OK" = false ]; then
+    info "Instalando Node.js 20 LTS via nvm..."
     export NVM_DIR="$HOME/.nvm"
-    # shellcheck source=/dev/null
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-    info "Instalando Node.js 20 LTS..."
-    nvm install 20
+    if [ ! -f "$NVM_DIR/nvm.sh" ]; then
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh \
+            | bash \
+            || die "Falló la instalación de nvm."
+    fi
+
+    # shellcheck source=/dev/null
+    . "$NVM_DIR/nvm.sh"
+
+    nvm install 20 || die "Falló la instalación de Node.js."
     nvm use 20
     nvm alias default 20
     success "Node.js $(node --version) instalado."
-}
+fi
 
-# ── Clonar y compilar ────────────────────────────────────────
+# ── 5. Clonar y compilar ─────────────────────────────────────
 
-build_app() {
-    header "4/5  Compilación"
+echo ""
+info "Preparando repositorio en $APP_DIR..."
 
-    if [ -d "$APP_DIR" ]; then
-        info "Actualizando repositorio existente..."
-        git -C "$APP_DIR" pull --ff-only
-    else
-        info "Clonando repositorio en $APP_DIR..."
-        git clone "$REPO" "$APP_DIR"
-    fi
+if [ -d "$APP_DIR/.git" ]; then
+    info "Actualizando repositorio existente..."
+    git -C "$APP_DIR" pull --ff-only || warn "No se pudo actualizar el repo, usando versión local."
+else
+    git clone "$REPO" "$APP_DIR" || die "Falló la clonación del repositorio."
+fi
 
-    cd "$APP_DIR"
+cd "$APP_DIR" || die "No se puede acceder a $APP_DIR."
 
-    info "Instalando dependencias npm..."
-    npm install --prefer-offline 2>&1 | tail -5
+info "Instalando dependencias npm..."
+npm install || die "Falló npm install."
 
-    info "Compilando la aplicación (esto puede tardar 5-10 minutos)..."
-    npm run tauri build 2>&1 | grep -E "Compiling|Finished|error|warning: unused" | tail -30
+info "Compilando (esto puede tardar 5-10 minutos)..."
+npm run tauri build || die "Falló la compilación."
 
-    success "Compilación completada."
-}
+success "Compilación completada."
 
-# ── Instalar binario y acceso directo ────────────────────────
+# ── 6. Instalar ──────────────────────────────────────────────
 
-install_app() {
-    header "5/5  Instalación"
+echo ""
+info "Instalando..."
 
-    # Buscar el binario generado
-    BINARY=$(find "$APP_DIR/src-tauri/target/release" -maxdepth 1 -type f -name "app" -o -name "streamdeck" 2>/dev/null | head -1)
+BINARY=$(find "$APP_DIR/src-tauri/target/release" -maxdepth 1 -type f -executable ! -name "*.d" ! -name "*.rlib" 2>/dev/null | head -1)
 
-    if [ -z "$BINARY" ]; then
-        # Buscar en bundle también
-        BINARY=$(find "$APP_DIR/src-tauri/target/release/bundle" -type f -executable -name "app*" 2>/dev/null | head -1)
-    fi
+if [ -z "$BINARY" ]; then
+    die "No se encontró el binario compilado en src-tauri/target/release/"
+fi
 
-    if [ -z "$BINARY" ]; then
-        error "No se encontró el binario compilado. Revisa los errores de compilación."
-    fi
+mkdir -p "$BIN_DIR"
+cp "$BINARY" "$BIN_DIR/streamdeck"
+chmod +x "$BIN_DIR/streamdeck"
+success "Binario instalado en $BIN_DIR/streamdeck"
 
-    # Crear directorio bin si no existe
-    mkdir -p "$BIN_DIR"
-
-    # Copiar binario
-    cp "$BINARY" "$BIN_DIR/streamdeck"
-    chmod +x "$BIN_DIR/streamdeck"
-    success "Binario instalado en $BIN_DIR/streamdeck"
-
-    # Crear entrada .desktop
-    mkdir -p "$DESKTOP_DIR"
-    cat > "$DESKTOP_DIR/streamdeck.desktop" <<EOF
+mkdir -p "$DESKTOP_DIR"
+cat > "$DESKTOP_DIR/streamdeck.desktop" <<EOF
 [Desktop Entry]
 Name=StreamDeck
 Comment=Tu centro de entretenimiento multimedia
@@ -255,55 +195,24 @@ Type=Application
 Categories=AudioVideo;Video;Player;
 StartupNotify=true
 EOF
-    success "Acceso directo creado en el menú de aplicaciones."
+success "Acceso directo creado."
 
-    # Añadir ~/.local/bin al PATH si no está
-    SHELL_RC=""
-    if [ -n "$ZSH_VERSION" ] || [ "$SHELL" = "/bin/zsh" ] || [ "$SHELL" = "/usr/bin/zsh" ]; then
-        SHELL_RC="$HOME/.zshrc"
-    else
-        SHELL_RC="$HOME/.bashrc"
-    fi
+# Añadir ~/.local/bin al PATH si falta
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    SHELL_RC="$HOME/.bashrc"
+    [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
+    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
+    warn "Añadido $BIN_DIR al PATH en $SHELL_RC"
+    warn "Ejecuta: source $SHELL_RC"
+fi
 
-    if ! echo "$PATH" | grep -q "$BIN_DIR"; then
-        echo "" >> "$SHELL_RC"
-        echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
-        warn "Se añadió $BIN_DIR al PATH en $SHELL_RC"
-        warn "Ejecuta: source $SHELL_RC  (o abre una nueva terminal)"
-    fi
-}
+# ── Fin ──────────────────────────────────────────────────────
 
-# ── Main ─────────────────────────────────────────────────────
-
-main() {
-    clear
-    echo -e "${BOLD}"
-    echo "  ╔══════════════════════════════════════╗"
-    echo "  ║   TheFoundry StreamDeck Installer    ║"
-    echo "  ╚══════════════════════════════════════╝"
-    echo -e "${RESET}"
-
-    echo "  Este script instalará StreamDeck compilando desde fuente."
-    echo "  Se necesitan ~500MB de espacio y conexión a Internet."
-    echo ""
-
-    detect_distro
-    info "Distribución detectada: $DISTRO_ID ${DISTRO_ID_LIKE:+(like: $DISTRO_ID_LIKE)}"
-
-    install_system_deps
-    install_rust
-    install_node
-    build_app
-    install_app
-
-    echo ""
-    echo -e "${GREEN}${BOLD}════════════════════════════════════════${RESET}"
-    echo -e "${GREEN}${BOLD}  ✔  StreamDeck instalado correctamente  ${RESET}"
-    echo -e "${GREEN}${BOLD}════════════════════════════════════════${RESET}"
-    echo ""
-    echo "  Ejecuta:   streamdeck"
-    echo "  O búscalo en el menú de aplicaciones de tu escritorio."
-    echo ""
-}
-
-main "$@"
+echo ""
+echo -e "${GREEN}${BOLD}  ════════════════════════════════════════${RESET}"
+echo -e "${GREEN}${BOLD}  ✔  StreamDeck instalado correctamente   ${RESET}"
+echo -e "${GREEN}${BOLD}  ════════════════════════════════════════${RESET}"
+echo ""
+echo "  Ejecuta: streamdeck"
+echo "  O búscalo en el menú de aplicaciones."
+echo ""
