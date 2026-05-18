@@ -3,8 +3,7 @@ import {
   Server, Play, Pause, ArrowLeft, Volume2, VolumeX, Maximize2,
   Loader2, AlertCircle, Tv, Film, ChevronRight,
 } from "lucide-react";
-import { useStore } from "../store/useStore";
-import { usePlexLibraries, usePlexLibraryItems, usePlexChildren, plexAssetUrl, plexStreamUrl } from "../hooks/usePlex";
+import { usePlexLibraries, usePlexLibraryItems, usePlexChildren, usePlexConfig, plexAssetUrl, plexStreamUrl } from "../hooks/usePlex";
 import { cn } from "../lib/utils";
 import type { PlexLibrary, PlexItem } from "../types";
 
@@ -295,9 +294,7 @@ function SeasonRow({
 // ── Main PlexBrowser view ────────────────────────────────────────────────────
 
 export function PlexBrowser() {
-  const { settings } = useStore();
-  const plexUrl   = settings?.plexUrl   ?? "";
-  const plexToken = settings?.plexToken ?? "";
+  const { plexUrl, plexToken } = usePlexConfig();
 
   const [activeLibrary, setActiveLibrary] = useState<PlexLibrary | null>(null);
   const [selectedShow, setSelectedShow] = useState<PlexItem | null>(null);

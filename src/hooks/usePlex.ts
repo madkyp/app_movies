@@ -5,7 +5,7 @@ import type { PlexLibrary, PlexItem } from "../types";
 const DEFAULT_PLEX_URL   = "http://thefoundryplex.duckdns.org:32400";
 const DEFAULT_PLEX_TOKEN = "WJcJdsyCc68r29CCvRtP";
 
-function usePlexConfig() {
+export function usePlexConfig() {
   const settings = useStore((s) => s.settings);
   const plexUrl   = settings?.plexUrl   || DEFAULT_PLEX_URL;
   const plexToken = settings?.plexToken || DEFAULT_PLEX_TOKEN;
