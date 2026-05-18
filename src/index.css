@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: #0f0f1a;
+  color: #ffffff;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a45; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #7b5ea7; }
+
+@layer components {
+  .media-card {
+    @apply relative rounded-xl overflow-hidden cursor-pointer bg-bg-card border border-border;
+    @apply transition-all duration-200 ease-out;
+  }
+  .media-card:hover {
+    @apply scale-[1.04] border-accent/60 shadow-xl shadow-accent/20 z-10;
+  }
+  .btn-primary {
+    @apply flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm text-white;
+    @apply bg-gradient-accent hover:opacity-90 active:scale-95 transition-all duration-150;
+  }
+  .btn-ghost {
+    @apply flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm;
+    @apply text-text-secondary hover:text-white hover:bg-bg-hover transition-all duration-150;
+  }
+  .input-search {
+    @apply w-full px-4 py-2 rounded-xl text-sm outline-none transition-all duration-200;
+    @apply bg-bg-card border border-border text-white placeholder-text-muted;
+    @apply focus:border-accent/60 focus:ring-2 focus:ring-accent/20;
+  }
+  .sidebar-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer;
+    @apply text-text-secondary hover:text-white hover:bg-bg-hover transition-all duration-150;
+    @apply text-sm font-medium;
+  }
+  .sidebar-item.active {
+    @apply text-white bg-accent/15 border border-accent/25;
+  }
+  .badge {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider;
+    @apply bg-accent/20 text-accent-light border border-accent/30;
+  }
+  .badge-quality {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider;
+  }
+  .badge-4k { @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30; }
+  .badge-1080 { @apply bg-blue-500/20 text-blue-400 border border-blue-500/30; }
+  .badge-720 { @apply bg-green-500/20 text-green-400 border border-green-500/30; }
+  .row-scroll {
+    @apply flex gap-3 overflow-x-auto pb-2;
+    scrollbar-width: none;
+  }
+  .row-scroll::-webkit-scrollbar { display: none; }
+}
