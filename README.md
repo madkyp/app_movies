@@ -59,50 +59,72 @@ Player con controles completos (play/pausa, seek, barra de progreso), selector d
 
 ---
 
-## Requisitos del sistema
+## Instalación
 
-- **Linux** (desarrollado y probado en CachyOS / Arch)
+### Instalación automática (recomendado)
+
+El script detecta tu distribución, instala todas las dependencias, compila la app y crea un acceso directo en el menú de aplicaciones.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh | bash
+```
+
+Una vez completado, ejecuta `streamdeck` desde la terminal o búscala en el menú de tu escritorio.
+
+**Distribuciones compatibles:**
+
+| Distribución | Versión mínima |
+|---|---|
+| Arch Linux / Manjaro / CachyOS / EndeavourOS | cualquiera |
+| Ubuntu / Linux Mint / Pop!\_OS | 22.04+ |
+| Debian | 12+ |
+| Fedora | 38+ |
+| openSUSE | Tumbleweed |
+
+> Ubuntu 20.04 y anteriores **no son compatibles** (webkit2gtk-4.1 no disponible).
+
+---
+
+## Compilación manual (desarrollo)
+
+Si prefieres clonar y compilar tú mismo:
+
+**Requisitos previos:**
 - [Rust](https://rustup.rs/) 1.77.2+
 - [Node.js](https://nodejs.org/) 20+
-- `ffmpeg`, `mpv` y `smbclient` instalados en el sistema
+- `ffmpeg`, `mpv` y `smbclient`
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S ffmpeg mpv samba
+sudo pacman -S ffmpeg mpv samba webkit2gtk-4.1 gtk3 openssl
+
+# Ubuntu / Debian
+sudo apt install ffmpeg mpv smbclient libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev
+```
+
+```bash
+git clone https://github.com/madkyp/app_movies.git
+cd app_movies
+npm install
+npm run tauri dev      # modo desarrollo
+npm run tauri build    # compilar para producción
 ```
 
 ---
 
-## Instalación y desarrollo
+## Configuración
 
-```bash
-# 1. Clona el repositorio
-git clone https://github.com/madkyp/app_movies.git
-cd app_movies
-
-# 2. Instala dependencias
-npm install
-
-# 3. Ejecuta en modo desarrollo
-npm run tauri dev
-
-# 4. Compila para producción
-npm run tauri build
-```
-
-El instalador se generará en `src-tauri/target/release/bundle/`.
-
-### Configurar Plex
+### Plex
 
 Abre la app → **Ajustes** → introduce tu Plex URL y token. Las credenciales se guardan localmente y nunca salen del dispositivo.
 
 > Para obtener tu token de Plex: https://support.plex.tv/articles/204059436
 
-### Configurar NAS / SMB
+### NAS / SMB
 
 1. Ve a **Mis Carpetas** en la barra lateral
 2. Haz clic en **Añadir carpeta**
-3. Introduce un nombre y la ruta en formato `smb://usuario:contraseña@192.168.1.10/NombreShare`
+3. Introduce un nombre y la ruta: `smb://usuario:contraseña@192.168.1.10/NombreShare`
 4. La app comprobará la conexión antes de guardar
 
 Las credenciales se guardan localmente y se enmascaran en la interfaz.
