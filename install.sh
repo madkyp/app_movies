@@ -170,7 +170,7 @@ cargo install tauri-cli --version "^2" --locked \
     || die "Falló la instalación de tauri-cli."
 
 info "Compilando (esto puede tardar 5-10 minutos)..."
-cargo tauri build || die "Falló la compilación."
+cargo tauri build --no-bundle || die "Falló la compilación."
 
 success "Compilación completada."
 
