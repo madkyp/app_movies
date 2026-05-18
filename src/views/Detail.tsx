@@ -1,6 +1,8 @@
-import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server } from "lucide-react";
+import { useState } from "react";
+import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, plexStreamUrl } from "../hooks/usePlex";
+import { useMediaReviews } from "../hooks/useTmdb";
 import { getBackdropUrl, getPosterUrl, getYear, formatRuntime, getRatingColor, cn } from "../lib/utils";
 import type { MediaDetail } from "../types";
 
@@ -44,10 +46,53 @@ function PlexButton({ media }: { media: MediaDetail }) {
   );
 }
 
+function ReviewCard({ review }: { review: { id: string; author: string; content: string; created_at: string; author_details?: { rating?: number | null } } }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = review.content.length > 300;
+  const text = expanded || !long ? review.content : review.content.slice(0, 300) + "…";
+  const date = new Date(review.created_at).toLocaleDateString("es-ES", { year: "numeric", month: "short", day: "numeric" });
+
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm font-bold">
+            {review.author[0].toUpperCase()}
+          </div>
+          <div>
+            <p className="text-white text-sm font-medium">{review.author}</p>
+            <p className="text-text-muted text-[11px]">{date}</p>
+          </div>
+        </div>
+        {review.author_details?.rating != null && (
+          <span className="flex items-center gap-1 text-yellow-400 text-sm font-bold">
+            <Star size={12} className="fill-current" /> {review.author_details.rating}/10
+          </span>
+        )}
+      </div>
+      <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-line">{text}</p>
+      {long && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex items-center gap-1 text-accent text-xs mt-2 hover:underline"
+        >
+          {expanded ? <><ChevronUp size={12} /> Ver menos</> : <><ChevronDown size={12} /> Ver más</>}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Detail() {
   const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist } = useStore();
+  const mediaType = (media as any)?.media_type as "movie" | "tv" | undefined;
+  const { reviews } = useMediaReviews(media?.id ?? null, mediaType ?? "movie");
 
   if (!media) return null;
+
+  const trailer = media.videos?.results?.find(
+    (v) => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser")
+  );
 
   const backdrop = getBackdropUrl(media.backdrop_path, "original");
   const poster = getPosterUrl(media.poster_path, "w500");
@@ -168,6 +213,34 @@ export function Detail() {
                   <p className="text-white text-[10px] font-medium leading-tight">{actor.name}</p>
                   <p className="text-text-muted text-[9px] truncate">{actor.character}</p>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Trailer */}
+        {trailer && (
+          <div className="mb-6">
+            <h3 className="text-white font-semibold mb-3">Trailer</h3>
+            <div className="relative w-full max-w-2xl rounded-xl overflow-hidden" style={{ paddingBottom: "min(56.25%, 360px)" }}>
+              <iframe
+                className="absolute inset-0 w-full h-full"
+                src={`https://www.youtube-nocookie.com/embed/${trailer.key}?rel=0&modestbranding=1`}
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
+                title="Trailer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Reviews */}
+        {reviews.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-white font-semibold mb-3">Reseñas</h3>
+            <div className="flex flex-col gap-3 max-w-2xl">
+              {reviews.map((r) => (
+                <ReviewCard key={r.id} review={r} />
               ))}
             </div>
           </div>

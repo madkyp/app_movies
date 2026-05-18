@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { TMDB_BASE_URL } from "../lib/utils";
 import { useStore } from "../store/useStore";
-import type { Media, MediaDetail, Episode } from "../types";
+import type { Media, MediaDetail, Episode, Review } from "../types";
 
 const FALLBACK_KEY = import.meta.env.VITE_TMDB_KEY ?? "";
 
@@ -106,6 +106,20 @@ export function useSeasonEpisodes(tvId: number | null, seasonNumber: number | nu
   }, [apiKey, tvId, seasonNumber]);
 
   return { episodes, loading };
+}
+
+export function useMediaReviews(id: number | null, type: "movie" | "tv") {
+  const apiKey = useApiKey();
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  useEffect(() => {
+    if (!apiKey || !id) { setReviews([]); return; }
+    tmdbFetch<{ results: Review[] }>(`/${type}/${id}/reviews`, apiKey)
+      .then((r) => setReviews(r.results.slice(0, 4)))
+      .catch(() => setReviews([]));
+  }, [apiKey, id, type]);
+
+  return { reviews };
 }
 
 export function useMediaDetail() {

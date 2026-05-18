@@ -50,6 +50,14 @@ export interface MediaDetail extends Media {
   videos?: { results: { key: string; site: string; type: string }[] };
 }
 
+export interface Review {
+  id: string;
+  author: string;
+  content: string;
+  created_at: string;
+  author_details?: { rating?: number | null; avatar_path?: string | null };
+}
+
 export type TorrentLanguage = "es" | "es-lat" | "dual" | "en" | "multi" | "unknown";
 
 export interface TorrentSource {
