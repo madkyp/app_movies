@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-shell";
 import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
@@ -220,14 +221,12 @@ export function Detail() {
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-white font-semibold">Trailer</h3>
                   {trailerPlaying && (
-                    <a
-                      href={`https://www.youtube.com/watch?v=${trailer.key}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      onClick={() => open(`https://www.youtube.com/watch?v=${trailer.key}`)}
                       className="text-xs text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
                     >
                       <PlayCircle size={12} /> Ver en YouTube
-                    </a>
+                    </button>
                   )}
                 </div>
                 <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
