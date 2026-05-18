@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
-import { open } from "@tauri-apps/plugin-shell";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
@@ -219,7 +219,16 @@ export function Detail() {
               <div>
                 <h3 className="text-white font-semibold mb-3">Trailer</h3>
                 <button
-                  onClick={() => open(`https://www.youtube.com/watch?v=${trailer.key}`)}
+                  onClick={() => {
+                    new WebviewWindow(`trailer-${trailer.key}`, {
+                      url: `https://www.youtube.com/watch?v=${trailer.key}&autoplay=1`,
+                      title: `${media.title || media.name} — Tráiler`,
+                      width: 1280,
+                      height: 720,
+                      center: true,
+                      resizable: true,
+                    });
+                  }}
                   className="relative w-full rounded-2xl overflow-hidden border border-white/10 group block"
                   style={{ paddingTop: "56.25%" }}
                 >
