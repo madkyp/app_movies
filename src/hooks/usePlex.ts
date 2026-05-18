@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
 import type { PlexLibrary, PlexItem } from "../types";
 
-const DEFAULT_PLEX_URL   = "http://192.168.1.10:32400";
-const DEFAULT_PLEX_TOKEN = "LGXak_7DjZA8kJ2fBsmM";
+const DEFAULT_PLEX_URL   = "http://thefoundryplex.duckdns.org:32400";
+const DEFAULT_PLEX_TOKEN = "WJcJdsyCc68r29CCvRtP";
 
 function usePlexConfig() {
   const settings = useStore((s) => s.settings);
