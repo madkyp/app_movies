@@ -165,8 +165,12 @@ cd "$APP_DIR" || die "No se puede acceder a $APP_DIR."
 info "Instalando dependencias npm..."
 npm install || die "Falló npm install."
 
+info "Instalando tauri-cli via cargo..."
+cargo install tauri-cli --version "^2" --locked \
+    || die "Falló la instalación de tauri-cli."
+
 info "Compilando (esto puede tardar 5-10 minutos)..."
-./node_modules/.bin/tauri build || die "Falló la compilación."
+cargo tauri build || die "Falló la compilación."
 
 success "Compilación completada."
 
