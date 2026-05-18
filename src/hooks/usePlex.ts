@@ -2,13 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
 import type { PlexLibrary, PlexItem } from "../types";
 
-const DEFAULT_PLEX_URL   = import.meta.env.VITE_PLEX_URL   ?? "";
-const DEFAULT_PLEX_TOKEN = import.meta.env.VITE_PLEX_TOKEN ?? "";
-
 function usePlexConfig() {
   const settings = useStore((s) => s.settings);
-  const plexUrl   = settings?.plexUrl   || DEFAULT_PLEX_URL;
-  const plexToken = settings?.plexToken || DEFAULT_PLEX_TOKEN;
+  const plexUrl   = settings?.plexUrl   ?? "";
+  const plexToken = settings?.plexToken ?? "";
   return { plexUrl: plexUrl.replace(/\/$/, ""), plexToken };
 }
 

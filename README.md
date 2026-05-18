@@ -119,32 +119,25 @@ cd app_movies
 npm install
 ```
 
-### 3. Configura las variables de entorno
-
-Crea un archivo `.env.local` en la raíz del proyecto (ya está en `.gitignore`):
-
-```env
-VITE_PLEX_URL=http://tu-servidor-plex:32400
-VITE_PLEX_TOKEN=tu_token_plex
-```
-
-> Para obtener tu token de Plex, consulta: https://support.plex.tv/articles/204059436
-
-Si no tienes Plex, puedes dejar las variables vacías — la sección Plex simplemente no mostrará contenido.
-
-### 4. Ejecuta en modo desarrollo
+### 3. Ejecuta en modo desarrollo
 
 ```bash
 npm run tauri dev
 ```
 
-### 5. Compila para producción
+### 4. Compila para producción
 
 ```bash
 npm run tauri build
 ```
 
 El instalador se generará en `src-tauri/target/release/bundle/`.
+
+### 5. Configura Plex (opcional)
+
+Abre la app → **Ajustes** → introduce tu Plex URL y token. Las credenciales se guardan localmente en el dispositivo y nunca salen del mismo.
+
+> Para obtener tu token de Plex: https://support.plex.tv/articles/204059436
 
 ---
 

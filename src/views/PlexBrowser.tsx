@@ -296,8 +296,8 @@ function SeasonRow({
 
 export function PlexBrowser() {
   const { settings } = useStore();
-  const plexUrl   = settings?.plexUrl   || (import.meta.env.VITE_PLEX_URL   ?? "");
-  const plexToken = settings?.plexToken || (import.meta.env.VITE_PLEX_TOKEN ?? "");
+  const plexUrl   = settings?.plexUrl   ?? "";
+  const plexToken = settings?.plexToken ?? "";
 
   const [activeLibrary, setActiveLibrary] = useState<PlexLibrary | null>(null);
   const [selectedShow, setSelectedShow] = useState<PlexItem | null>(null);
