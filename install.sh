@@ -286,12 +286,6 @@ main() {
     echo "  Este script instalará StreamDeck compilando desde fuente."
     echo "  Se necesitan ~500MB de espacio y conexión a Internet."
     echo ""
-    read -r -p "  ¿Continuar? [s/N] " confirm </dev/tty
-    case "$confirm" in
-        [sS]*) ;;
-        *) echo "Instalación cancelada."; exit 0 ;;
-    esac
-    echo ""
 
     detect_distro
     info "Distribución detectada: $DISTRO_ID ${DISTRO_ID_LIKE:+(like: $DISTRO_ID_LIKE)}"
