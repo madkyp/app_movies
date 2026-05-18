@@ -54,7 +54,7 @@ if is_like arch || [ "$DISTRO_ID" = "arch" ] || [ "$DISTRO_ID" = "cachyos" ] || 
         base-devel git curl \
         webkit2gtk-4.1 gtk3 openssl \
         appmenu-gtk-module libappindicator-gtk3 librsvg xdotool \
-        ffmpeg mpv samba \
+        ffmpeg mpv samba fuse2 \
         || die "Falló la instalación de dependencias con pacman."
 
 elif is_like debian || is_like ubuntu || [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "linuxmint" ]; then
@@ -170,7 +170,7 @@ cargo install tauri-cli --version "^2" --locked \
     || die "Falló la instalación de tauri-cli."
 
 info "Compilando (esto puede tardar 5-10 minutos)..."
-cargo tauri build --no-bundle || die "Falló la compilación."
+cargo tauri build --bundles deb,appimage || cargo tauri build --bundles deb || die "Falló la compilación."
 
 success "Compilación completada."
 
@@ -179,7 +179,7 @@ success "Compilación completada."
 echo ""
 info "Instalando..."
 
-BINARY=$(find "$APP_DIR/src-tauri/target/release" -maxdepth 1 -type f -executable ! -name "*.d" ! -name "*.rlib" 2>/dev/null | head -1)
+BINARY=$(find "$APP_DIR/src-tauri/target/release" -maxdepth 1 -type f -executable ! -name "*.d" ! -name "*.rlib" ! -name "build" ! -name "deps" ! -name "incremental" 2>/dev/null | head -1)
 
 if [ -z "$BINARY" ]; then
     die "No se encontró el binario compilado en src-tauri/target/release/"
