@@ -85,33 +85,6 @@ Una vez completado, ejecuta `streamdeck` desde la terminal o búscala en el men�
 
 ---
 
-## Compilación manual (desarrollo)
-
-Si prefieres clonar y compilar tú mismo:
-
-**Requisitos previos:**
-- [Rust](https://rustup.rs/) 1.77.2+
-- [Node.js](https://nodejs.org/) 20+
-- `ffmpeg`, `mpv` y `smbclient`
-
-```bash
-# Arch / CachyOS
-sudo pacman -S ffmpeg mpv samba webkit2gtk-4.1 gtk3 openssl
-
-# Ubuntu / Debian
-sudo apt install ffmpeg mpv smbclient libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev
-```
-
-```bash
-git clone https://github.com/madkyp/app_movies.git
-cd app_movies
-npm install
-npm run tauri dev      # modo desarrollo
-npm run tauri build    # compilar para producción
-```
-
----
-
 ## Configuración
 
 ### Plex
