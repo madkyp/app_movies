@@ -61,15 +61,23 @@ Player con controles completos (play/pausa, seek, barra de progreso), selector d
 
 ## Instalación
 
-### Instalación automática (recomendado)
+### Instalación
 
 El script detecta tu distribución, instala todas las dependencias, compila la app y crea un acceso directo en el menú de aplicaciones.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh | bash
+curl -fsSL "https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh" -o /tmp/install_streamdeck.sh && bash /tmp/install_streamdeck.sh
 ```
 
 Una vez completado, ejecuta `streamdeck` desde la terminal o búscala en el menú de tu escritorio.
+
+### Actualización
+
+Para actualizar a la última versión (más rápido, omite la instalación de dependencias):
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh" -o /tmp/install_streamdeck.sh && bash /tmp/install_streamdeck.sh update
+```
 
 **Distribuciones compatibles:**
 
