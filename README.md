@@ -8,66 +8,37 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
 
 ## Capturas de pantalla
 
-### Inicio — Catálogo y tendencias
-![Inicio](docs/screenshots/home.png)
-
-### Detalle de película
-![Detalle](docs/screenshots/detail.png)
-
-### Selección de fuente torrent
-![Torrents](docs/screenshots/torrents.png)
-
-### Series — Temporadas y episodios
-![Series](docs/screenshots/series.png)
-
-### Plex — Bibliotecas
-![Plex bibliotecas](docs/screenshots/plex-libraries.png)
-
-### Plex — Contenido de biblioteca
-![Plex contenido](docs/screenshots/plex-content.png)
-
-### Mis Carpetas — Gestor de carpetas de red
-![Mis Carpetas](docs/screenshots/folders.png)
-
-### Mis Carpetas — Explorador de archivos NAS
-![Archivos NAS](docs/screenshots/nas-files.png)
+| | |
+|---|---|
+| ![Inicio](docs/screenshots/home.png) | ![Detalle](docs/screenshots/detail.png) |
+| ![Torrents](docs/screenshots/torrents.png) | ![Series](docs/screenshots/series.png) |
+| ![Plex bibliotecas](docs/screenshots/plex-libraries.png) | ![Plex contenido](docs/screenshots/plex-content.png) |
+| ![Mis Carpetas](docs/screenshots/folders.png) | ![Archivos NAS](docs/screenshots/nas-files.png) |
 
 ---
 
 ## Características
 
 ### Catálogo inteligente
-- **Inicio** con sección hero, tendencias de la semana, películas y series populares
-- **Búsqueda global** de películas y series en tiempo real
-- **Vista de detalle**: sinopsis, puntuación, año, duración, géneros y reparto principal
-- **Mi Lista**: guarda contenido para verlo más tarde
-- Datos obtenidos de la **API de TMDB**
+Pantalla de inicio con sección hero, tendencias de la semana, películas y series populares. Búsqueda global en tiempo real. Los datos del catálogo se obtienen de la **API de TMDB**.
+
+### Detalle de película o serie
+Vista con sinopsis, puntuación, año, duración, géneros y reparto principal. Desde aquí puedes reproducir vía torrent, vía Plex (si está configurado) o añadir a **Mi Lista**.
 
 ### Streaming por torrent
-- Busca fuentes en **YTS** (películas) y **EZTV** (series) directamente desde la app
-- Muestra calidad (4K / 1080p), idioma (ESP / LAT / DUAL), códec (x265 / x264), peso y número de seeds
-- Empieza a reproducir mientras descarga — motor integrado **librqbit**
-- El vídeo se sirve localmente vía HTTP y se reproduce con el player integrado
+Busca fuentes en **YTS** (películas) y **EZTV** (series) directamente desde la app. Cada resultado muestra la calidad (4K / 1080p), idioma (ESP / LAT / DUAL), códec (x265 / x264), tamaño y número de seeds. Al pulsar Play, la descarga empieza y la reproducción comienza de inmediato gracias al motor integrado **librqbit**.
+
+### Series — Temporadas y episodios
+Vista de serie con pestañas por temporada y listado de episodios con miniatura, sinopsis y fecha. Cada episodio tiene su propio buscador de fuentes torrent.
 
 ### Integración Plex
-- Conecta con tu servidor **Plex Media Server** y navega tus bibliotecas
-- Vista de biblioteca en cuadrícula con posters
-- Reproduce directamente desde Plex con un clic
+Conecta con tu servidor **Plex Media Server** configurando la URL y el token en Ajustes. Navega tus bibliotecas en cuadrícula y reproduce cualquier archivo con un clic. Las credenciales se guardan solo en tu dispositivo.
 
 ### Mis Carpetas — NAS y red local
-- Añade carpetas locales o **recursos de red SMB** (`smb://usuario:contraseña@host/share`)
-- Navega la estructura de directorios del NAS con breadcrumb
-- Comprobación de conexión al guardar una carpeta
-- Reproducción directa de archivos MKV y otros formatos desde el NAS
-- Descarga en segundo plano con inicio de reproducción temprano (streaming a partir de los primeros 10 MB)
-- Soporte **SMB2** vía `smbclient`
+Añade carpetas locales o recursos de red via **SMB** (`smb://usuario:contraseña@host/share`). Navega la estructura de directorios con breadcrumb. Al añadir una carpeta la app comprueba la conexión antes de guardar. Los archivos del NAS se descargan en segundo plano y la reproducción empieza en cuanto llegan los primeros 10 MB.
 
 ### Reproductor integrado
-- Player de vídeo con controles de reproducción, barra de progreso y seek
-- Selector de **pista de audio** (para archivos con múltiples idiomas)
-- Soporte de subtítulos
-- Opción de abrir en **mpv** como reproductor externo
-- Compatible con torrents activos, archivos locales y archivos de red
+Player con controles completos (play/pausa, seek, barra de progreso), selector de **pista de audio** para archivos con varios idiomas, y opción de abrir en **mpv** como reproductor externo. Compatible con torrents activos, archivos locales y archivos de red.
 
 ---
 
@@ -93,9 +64,7 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
 - **Linux** (desarrollado y probado en CachyOS / Arch)
 - [Rust](https://rustup.rs/) 1.77.2+
 - [Node.js](https://nodejs.org/) 20+
-- `ffmpeg` instalado en el sistema
-- `mpv` instalado en el sistema (opcional, para reproductor externo)
-- `smbclient` instalado (para acceso a carpetas de red SMB)
+- `ffmpeg`, `mpv` y `smbclient` instalados en el sistema
 
 ```bash
 # Arch / CachyOS
@@ -106,52 +75,37 @@ sudo pacman -S ffmpeg mpv samba
 
 ## Instalación y desarrollo
 
-### 1. Clona el repositorio
-
 ```bash
+# 1. Clona el repositorio
 git clone https://github.com/madkyp/app_movies.git
 cd app_movies
-```
 
-### 2. Instala dependencias
-
-```bash
+# 2. Instala dependencias
 npm install
-```
 
-### 3. Ejecuta en modo desarrollo
-
-```bash
+# 3. Ejecuta en modo desarrollo
 npm run tauri dev
-```
 
-### 4. Compila para producción
-
-```bash
+# 4. Compila para producción
 npm run tauri build
 ```
 
 El instalador se generará en `src-tauri/target/release/bundle/`.
 
-### 5. Configura Plex (opcional)
+### Configurar Plex
 
-Abre la app → **Ajustes** → introduce tu Plex URL y token. Las credenciales se guardan localmente en el dispositivo y nunca salen del mismo.
+Abre la app → **Ajustes** → introduce tu Plex URL y token. Las credenciales se guardan localmente y nunca salen del dispositivo.
 
 > Para obtener tu token de Plex: https://support.plex.tv/articles/204059436
 
----
-
-## Configuración de Mis Carpetas (NAS/SMB)
-
-Para añadir una carpeta de red:
+### Configurar NAS / SMB
 
 1. Ve a **Mis Carpetas** en la barra lateral
 2. Haz clic en **Añadir carpeta**
-3. Introduce un nombre descriptivo
-4. En la ruta usa el formato SMB: `smb://usuario:contraseña@192.168.1.10/NombreShare`
-5. La app comprobará la conexión antes de guardar
+3. Introduce un nombre y la ruta en formato `smb://usuario:contraseña@192.168.1.10/NombreShare`
+4. La app comprobará la conexión antes de guardar
 
-Las credenciales se guardan localmente en `~/.config/streamdeck/folders.json` y se enmascaran en la interfaz.
+Las credenciales se guardan localmente y se enmascaran en la interfaz.
 
 ---
 
@@ -159,7 +113,7 @@ Las credenciales se guardan localmente en `~/.config/streamdeck/folders.json` y 
 
 ```
 app_movies/
-├── src/                        # Frontend React
+├── src/
 │   ├── views/
 │   │   ├── Home.tsx            # Pantalla de inicio con catálogo
 │   │   ├── Movies.tsx          # Listado de películas
@@ -175,12 +129,11 @@ app_movies/
 │   ├── hooks/                  # usePlex, useTmdb
 │   ├── store/                  # Estado global (Zustand)
 │   └── types/                  # Tipos TypeScript
-├── src-tauri/                  # Backend Rust (Tauri)
-│   └── src/
-│       ├── commands.rs         # Comandos Tauri: torrents, SMB, ffmpeg, mpv
-│       ├── torrent_manager.rs  # Motor de torrents (librqbit)
-│       └── lib.rs              # Setup de la app
-└── .env.local                  # Variables de entorno (no se sube a git)
+└── src-tauri/
+    └── src/
+        ├── commands.rs         # Torrents, SMB, ffmpeg, mpv
+        ├── torrent_manager.rs  # Motor de torrents (librqbit)
+        └── lib.rs              # Setup de la app
 ```
 
 ---
