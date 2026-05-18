@@ -217,12 +217,24 @@ export function Detail() {
             {/* Trailer */}
             {trailer && (
               <div>
-                <h3 className="text-white font-semibold mb-3">Trailer</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-semibold">Trailer</h3>
+                  {trailerPlaying && (
+                    <a
+                      href={`https://www.youtube.com/watch?v=${trailer.key}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
+                    >
+                      <PlayCircle size={12} /> Ver en YouTube
+                    </a>
+                  )}
+                </div>
                 <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
                   {trailerPlaying ? (
                     <iframe
                       className="absolute inset-0 w-full h-full"
-                      src={`https://www.youtube.com/embed/${trailer.key}?autoplay=1&rel=0`}
+                      src={`https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&rel=0`}
                       allow="autoplay; fullscreen"
                       allowFullScreen
                     />
