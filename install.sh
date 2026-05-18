@@ -180,7 +180,7 @@ install_node() {
 
     if ! command -v nvm &>/dev/null && [ ! -f "$HOME/.nvm/nvm.sh" ]; then
         info "Instalando nvm..."
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash </dev/tty
     fi
 
     export NVM_DIR="$HOME/.nvm"
@@ -286,7 +286,7 @@ main() {
     echo "  Este script instalará StreamDeck compilando desde fuente."
     echo "  Se necesitan ~500MB de espacio y conexión a Internet."
     echo ""
-    read -r -p "  ¿Continuar? [s/N] " confirm
+    read -r -p "  ¿Continuar? [s/N] " confirm </dev/tty
     case "$confirm" in
         [sS]*) ;;
         *) echo "Instalación cancelada."; exit 0 ;;
