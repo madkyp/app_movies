@@ -2,14 +2,15 @@ import { useState } from "react";
 import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useStore } from "../store/useStore";
-import { usePlexMatch, plexStreamUrl } from "../hooks/usePlex";
+import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
 import { getBackdropUrl, getPosterUrl, getYear, formatRuntime, getRatingColor, cn } from "../lib/utils";
 import type { MediaDetail } from "../types";
 
 // Isolated so the Plex hook only runs when media is guaranteed non-null
 function PlexButton({ media }: { media: MediaDetail }) {
-  const { settings, setPlexDirectUrl, setView } = useStore();
+  const { setPlexDirectUrl, setView } = useStore();
+  const { plexUrl, plexToken } = usePlexConfig();
   const imdbId = (media as any).imdb_id ?? (media as any).external_ids?.imdb_id ?? null;
   const { match } = usePlexMatch({
     imdbId,
@@ -24,7 +25,7 @@ function PlexButton({ media }: { media: MediaDetail }) {
     return (
       <button
         onClick={() => {
-          const url = plexStreamUrl(settings.plexUrl, settings.plexToken, match);
+          const url = plexStreamUrl(plexUrl, plexToken, match);
           if (url) {
             setPlexDirectUrl(url, match.duration ? match.duration / 1000 : 0);
             setView("player");
