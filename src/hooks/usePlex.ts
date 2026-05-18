@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
 import type { PlexLibrary, PlexItem } from "../types";
 
+const DEFAULT_PLEX_URL   = "http://192.168.1.10:32400";
+const DEFAULT_PLEX_TOKEN = "LGXak_7DjZA8kJ2fBsmM";
+
 function usePlexConfig() {
   const settings = useStore((s) => s.settings);
-  const plexUrl   = settings?.plexUrl   ?? "";
-  const plexToken = settings?.plexToken ?? "";
+  const plexUrl   = settings?.plexUrl   || DEFAULT_PLEX_URL;
+  const plexToken = settings?.plexToken || DEFAULT_PLEX_TOKEN;
   return { plexUrl: plexUrl.replace(/\/$/, ""), plexToken };
 }
 
