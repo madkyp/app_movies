@@ -124,7 +124,7 @@ Abre la app → **Ajustes** → introduce tu Plex URL y token. Las credenciales 
 
 1. Ve a **Mis Carpetas** en la barra lateral
 2. Haz clic en **Añadir carpeta**
-3. Introduce un nombre y la ruta: `smb://usuario:contraseña@192.168.1.10/NombreShare`
+3. Introduce un nombre y la ruta: `smb://usuario:contraseña@IP_DEL_NAS/NombreShare`
 4. La app comprobará la conexión antes de guardar
 
 Las credenciales se guardan localmente y se enmascaran en la interfaz.
