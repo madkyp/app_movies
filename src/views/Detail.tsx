@@ -103,21 +103,21 @@ export function Detail() {
   return (
     <div className="flex-1 overflow-y-auto relative">
       {/* Backdrop */}
-      <div className="absolute inset-0 h-[320px] overflow-hidden">
+      <div className="absolute inset-0 h-[420px] overflow-hidden">
         {backdrop && (
-          <img src={backdrop} alt="" className="w-full h-full object-cover object-top opacity-40" />
+          <img src={backdrop} alt="" className="w-full h-full object-cover object-top opacity-30" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-bg-primary/80 to-bg-primary" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-bg-primary/70 to-bg-primary" />
       </div>
 
-      <div className="relative z-10 px-6 pt-5">
-        <button onClick={() => setView("home")} className="btn-ghost mb-6 -ml-2">
+      <div className="relative z-10 px-8 pt-5 pb-8">
+        <button onClick={() => setView("home")} className="btn-ghost mb-8 -ml-2">
           <ArrowLeft size={16} /> Volver
         </button>
 
-        <div className="flex gap-6 mb-6">
-          {/* Poster */}
-          <div className="w-[160px] flex-shrink-0 rounded-xl overflow-hidden border border-border shadow-2xl">
+        {/* Header: poster + info */}
+        <div className="flex gap-8 mb-8">
+          <div className="w-[190px] flex-shrink-0 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
             {poster ? (
               <img src={poster} alt={title} className="w-full aspect-[2/3] object-cover" />
             ) : (
@@ -125,27 +125,26 @@ export function Detail() {
             )}
           </div>
 
-          {/* Info */}
-          <div className="flex-1 pt-2">
-            <h1 className="text-white text-3xl font-bold mb-2 leading-tight">{title}</h1>
+          <div className="flex-1 pt-4">
+            <h1 className="text-white text-4xl font-bold mb-2 leading-tight">{title}</h1>
 
             {media.tagline && (
-              <p className="text-text-muted text-sm italic mb-3">"{media.tagline}"</p>
+              <p className="text-text-muted text-sm italic mb-4">"{media.tagline}"</p>
             )}
 
-            <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-4 mb-4">
               {media.vote_average > 0 && (
-                <span className={cn("flex items-center gap-1 font-bold text-sm", getRatingColor(media.vote_average))}>
-                  <Star size={14} className="fill-current" /> {media.vote_average.toFixed(1)}
+                <span className={cn("flex items-center gap-1.5 font-bold", getRatingColor(media.vote_average))}>
+                  <Star size={15} className="fill-current" /> {media.vote_average.toFixed(1)}
                 </span>
               )}
               {year && (
-                <span className="flex items-center gap-1 text-text-secondary text-sm">
+                <span className="flex items-center gap-1.5 text-text-secondary text-sm">
                   <Calendar size={13} /> {year}
                 </span>
               )}
               {media.runtime && (
-                <span className="flex items-center gap-1 text-text-secondary text-sm">
+                <span className="flex items-center gap-1.5 text-text-secondary text-sm">
                   <Clock size={13} /> {formatRuntime(media.runtime)}
                 </span>
               )}
@@ -157,16 +156,20 @@ export function Detail() {
             </div>
 
             {media.genres?.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-4">
+              <div className="flex flex-wrap gap-1.5 mb-5">
                 {media.genres.map((g) => (
-                  <span key={g.id} className="px-2.5 py-0.5 rounded-full text-xs bg-bg-card border border-border text-text-secondary">
+                  <span key={g.id} className="px-3 py-0.5 rounded-full text-xs bg-white/5 border border-white/10 text-text-secondary">
                     {g.name}
                   </span>
                 ))}
               </div>
             )}
 
-            <div className="flex gap-3 mt-2 flex-wrap">
+            {media.overview && (
+              <p className="text-text-secondary text-sm leading-relaxed mb-5 max-w-2xl">{media.overview}</p>
+            )}
+
+            <div className="flex gap-3 flex-wrap">
               <button className="btn-primary" onClick={() => setView("player")}>
                 <Play size={16} className="fill-white" /> Reproducir
               </button>
@@ -182,28 +185,16 @@ export function Detail() {
           </div>
         </div>
 
-        {/* Overview */}
-        {media.overview && (
-          <div className="mb-6">
-            <h3 className="text-white font-semibold mb-2">Sinopsis</h3>
-            <p className="text-text-secondary text-sm leading-relaxed">{media.overview}</p>
-          </div>
-        )}
-
         {/* Cast */}
         {media.credits?.cast && media.credits.cast.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-white font-semibold mb-3">Reparto principal</h3>
+          <div className="mb-8">
+            <h3 className="text-white font-semibold mb-4">Reparto principal</h3>
             <div className="row-scroll">
               {media.credits.cast.slice(0, 12).map((actor) => (
                 <div key={actor.id} className="flex-shrink-0 w-[80px] text-center">
                   <div className="w-[80px] h-[80px] rounded-full overflow-hidden bg-bg-card border border-border mx-auto mb-1.5">
                     {actor.profile_path ? (
-                      <img
-                        src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`}
-                        alt={actor.name}
-                        className="w-full h-full object-cover"
-                      />
+                      <img src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`} alt={actor.name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-text-muted text-lg font-bold">
                         {actor.name[0]}
@@ -218,31 +209,36 @@ export function Detail() {
           </div>
         )}
 
-        {/* Trailer */}
-        {trailer && (
-          <div className="mb-6">
-            <h3 className="text-white font-semibold mb-3">Trailer</h3>
-            <div className="relative w-full max-w-2xl rounded-xl overflow-hidden" style={{ paddingBottom: "min(56.25%, 360px)" }}>
-              <iframe
-                className="absolute inset-0 w-full h-full"
-                src={`https://www.youtube-nocookie.com/embed/${trailer.key}?rel=0&modestbranding=1`}
-                allow="autoplay; encrypted-media; fullscreen"
-                allowFullScreen
-                title="Trailer"
-              />
-            </div>
-          </div>
-        )}
+        {/* Trailer + Reviews: two-column layout */}
+        {(trailer || reviews.length > 0) && (
+          <div className={cn("gap-6 mb-8", trailer && reviews.length > 0 ? "grid grid-cols-[3fr_2fr]" : "flex flex-col")}>
+            {/* Trailer */}
+            {trailer && (
+              <div>
+                <h3 className="text-white font-semibold mb-3">Trailer</h3>
+                <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
+                  <iframe
+                    className="absolute inset-0 w-full h-full"
+                    src={`https://www.youtube-nocookie.com/embed/${trailer.key}?rel=0&modestbranding=1`}
+                    allow="autoplay; encrypted-media; fullscreen"
+                    allowFullScreen
+                    title="Trailer"
+                  />
+                </div>
+              </div>
+            )}
 
-        {/* Reviews */}
-        {reviews.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-white font-semibold mb-3">Reseñas</h3>
-            <div className="flex flex-col gap-3 max-w-2xl">
-              {reviews.map((r) => (
-                <ReviewCard key={r.id} review={r} />
-              ))}
-            </div>
+            {/* Reviews */}
+            {reviews.length > 0 && (
+              <div className="flex flex-col min-h-0">
+                <h3 className="text-white font-semibold mb-3">Reseñas</h3>
+                <div className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: "340px" }}>
+                  {reviews.map((r) => (
+                    <ReviewCard key={r.id} review={r} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
