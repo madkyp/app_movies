@@ -65,6 +65,11 @@ jobs:
             Copy-Item "mpv_extract\$mpvExe" "src-tauri\binaries\mpv-x86_64-pc-windows-msvc.exe"
           }
 
+      - name: Download yt-dlp (Windows)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "src-tauri\binaries\yt-dlp-x86_64-pc-windows-msvc.exe"
+
       - name: Build
         run: npm run tauri build -- --config src-tauri/tauri.windows.conf.json
         env:

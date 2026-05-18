@@ -3,7 +3,8 @@
     "externalBin": [
       "binaries/ffmpeg",
       "binaries/ffprobe",
-      "binaries/mpv"
+      "binaries/mpv",
+      "binaries/yt-dlp"
     ],
     "targets": ["msi", "nsis"]
   }

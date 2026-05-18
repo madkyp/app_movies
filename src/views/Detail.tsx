@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-shell";
-import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Play, Star, Clock, Calendar, Bookmark, BookmarkCheck, ArrowLeft, Server, ChevronDown, ChevronUp, PlayCircle, Loader2 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
@@ -86,7 +87,8 @@ function ReviewCard({ review }: { review: { id: string; author: string; content:
 }
 
 export function Detail() {
-  const [trailerPlaying, setTrailerPlaying] = useState(false);
+  const [trailerState, setTrailerState] = useState<'idle' | 'loading' | 'video' | 'iframe'>('idle');
+  const [trailerUrl, setTrailerUrl]       = useState<string | null>(null);
   const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist } = useStore();
   const mediaType = (media as any)?.media_type as "movie" | "tv" | undefined;
   const { reviews } = useMediaReviews(media?.id ?? null, mediaType ?? "movie");
@@ -220,7 +222,7 @@ export function Detail() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-white font-semibold">Trailer</h3>
-                  {trailerPlaying && (
+                  {trailerState !== 'idle' && (
                     <button
                       onClick={() => open(`https://www.youtube.com/watch?v=${trailer.key}`)}
                       className="text-xs text-text-secondary hover:text-white flex items-center gap-1 transition-colors"
@@ -229,17 +231,21 @@ export function Detail() {
                     </button>
                   )}
                 </div>
-                <div className="relative w-full rounded-2xl overflow-hidden border border-white/10" style={{ paddingTop: "56.25%" }}>
-                  {trailerPlaying ? (
-                    <iframe
-                      className="absolute inset-0 w-full h-full"
-                      src={`https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&rel=0`}
-                      allow="autoplay; fullscreen"
-                      allowFullScreen
-                    />
-                  ) : (
+                <div className="relative w-full rounded-2xl overflow-hidden border border-white/10 bg-black" style={{ paddingTop: "56.25%" }}>
+
+                  {/* Miniatura + botón play */}
+                  {trailerState === 'idle' && (
                     <button
-                      onClick={() => setTrailerPlaying(true)}
+                      onClick={async () => {
+                        setTrailerState('loading');
+                        try {
+                          const url = await invoke<string>('get_youtube_stream_url', { videoId: trailer.key });
+                          setTrailerUrl(url);
+                          setTrailerState('video');
+                        } catch {
+                          setTrailerState('iframe');
+                        }
+                      }}
                       className="absolute inset-0 w-full h-full group"
                     >
                       <img
@@ -255,6 +261,35 @@ export function Detail() {
                       </div>
                     </button>
                   )}
+
+                  {/* Cargando con yt-dlp */}
+                  {trailerState === 'loading' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                      <Loader2 size={36} className="animate-spin text-red-500" />
+                      <span className="text-text-secondary text-sm">Obteniendo tráiler…</span>
+                    </div>
+                  )}
+
+                  {/* Reproducción directa vía yt-dlp */}
+                  {trailerState === 'video' && trailerUrl && (
+                    <video
+                      className="absolute inset-0 w-full h-full"
+                      src={trailerUrl}
+                      autoPlay
+                      controls
+                    />
+                  )}
+
+                  {/* Fallback iframe si yt-dlp falla */}
+                  {trailerState === 'iframe' && (
+                    <iframe
+                      className="absolute inset-0 w-full h-full"
+                      src={`https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&rel=0`}
+                      allow="autoplay; fullscreen"
+                      allowFullScreen
+                    />
+                  )}
+
                 </div>
               </div>
             )}

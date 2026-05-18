@@ -55,6 +55,51 @@ fn smbclient_bin() -> &'static str {
     "smbclient"
 }
 
+fn ytdlp_bin() -> std::path::PathBuf {
+    let fname = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+    if let Some(dir) = crate::torrent_manager::RESOURCE_DIR.get() {
+        let p = dir.join(fname);
+        if p.exists() { return p; }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for p in [dir.join(fname), dir.join("resources").join(fname)] {
+                if p.exists() { return p; }
+            }
+        }
+    }
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let c = dir.join(fname);
+            if c.exists() { return c; }
+        }
+    }
+    std::path::PathBuf::from(fname)
+}
+
+#[tauri::command]
+pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> {
+    let url = format!("https://www.youtube.com/watch?v={}", video_id);
+    // Formats 18 (360p mp4) and 22 (720p mp4) are always single-file with audio
+    let out = tokio::process::Command::new(ytdlp_bin())
+        .args(["-f", "22/18/best[ext=mp4]/best", "--get-url", "--no-playlist", &url])
+        .output()
+        .await
+        .map_err(|_| "yt-dlp no encontrado".to_string())?;
+
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("yt-dlp: {}", err.lines().last().unwrap_or("error desconocido")));
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stream_url = stdout.lines().next().unwrap_or("").trim().to_string();
+    if stream_url.is_empty() {
+        return Err("yt-dlp no devolvió ninguna URL".to_string());
+    }
+    Ok(stream_url)
+}
+
 // ─── Shared State ─────────────────────────────────────────────────────────────
 
 pub struct AppState {
