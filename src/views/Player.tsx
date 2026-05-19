@@ -274,7 +274,7 @@ export function Player() {
       setLoadingSources(true);
       setSourcesError(null);
       invoke<TorrentSource[]>("search_yts", { query: searchTitle, imdbId })
-        .then(setSources)
+        .then((s) => setSources(s.sort((a, b) => b.seeds - a.seeds)))
         .catch((e) => setSourcesError(String(e)))
         .finally(() => setLoadingSources(false));
       return;
@@ -293,7 +293,7 @@ export function Player() {
         season: selectedEpisode.season_number,
         episode: selectedEpisode.episode_number,
       })
-        .then(setSources)
+        .then((s) => setSources(s.sort((a, b) => b.seeds - a.seeds)))
         .catch((e) => setSourcesError(String(e)))
         .finally(() => setLoadingSources(false));
     }
