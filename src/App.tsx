@@ -65,15 +65,15 @@ function LeavePlayerModal({ onConfirm, onCancel }: {
         <div className="flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 btn-ghost text-sm py-2.5"
+            className="flex-1 btn-primary text-sm py-2.5"
           >
-            <X size={14} /> Continuar viendo
+            <Play size={13} className="fill-white" /> Continuar viendo
           </button>
           <button
             onClick={onConfirm}
-            className="flex-1 btn-primary text-sm py-2.5 bg-red-600 hover:bg-red-500 border-red-600 hover:border-red-500"
+            className="flex-1 flex items-center justify-center gap-1.5 text-sm py-2.5 px-4 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
           >
-            Salir
+            <X size={14} /> Salir
           </button>
         </div>
       </div>
