@@ -77,11 +77,23 @@ fn ytdlp_bin() -> std::path::PathBuf {
     std::path::PathBuf::from(fname)
 }
 
+/// Creates a Command with CREATE_NO_WINDOW on Windows so no console flashes appear.
+fn proc_cmd(bin: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut c = tokio::process::Command::new(bin);
+    #[cfg(windows)]
+    {
+        use tokio::process::windows::CommandExt;
+        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    c
+}
+
 #[tauri::command]
 pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> {
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
     // Formats 18 (360p mp4) and 22 (720p mp4) are always single-file with audio
-    let out = tokio::process::Command::new(ytdlp_bin())
+    let out = proc_cmd(ytdlp_bin())
         .args(["-f", "22/18/best[ext=mp4]/best", "--get-url", "--no-playlist", &url])
         .output()
         .await
@@ -1753,7 +1765,7 @@ async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> 
     let mut args: Vec<String> = vec!["-L".to_string(), format!("//{}", host), "-g".to_string()];
     args.extend(smb_auth_args(user, pass));
 
-    let out = tokio::process::Command::new(smbclient_bin())
+    let out = proc_cmd(smbclient_bin())
         .args(&args)
         .output()
         .await
@@ -1833,7 +1845,7 @@ async fn smb_list_files(host: &str, share: &str, subpath: &str, user: &str, pass
     let mut args: Vec<String> = vec![format!("//{}/{}", host, share), "-c".to_string(), ls_cmd];
     args.extend(smb_auth_args(user, pass));
 
-    let out = tokio::process::Command::new(smbclient_bin())
+    let out = proc_cmd(smbclient_bin())
         .args(&args)
         .output()
         .await
@@ -1910,7 +1922,7 @@ async fn smb_authenticate_windows(host: &str, user: &str, pass: &str) -> Result<
     }
     args.push("/persistent:no".to_string());
 
-    let out = tokio::process::Command::new("net")
+    let out = proc_cmd("net")
         .args(&args)
         .output()
         .await
@@ -1939,7 +1951,7 @@ async fn browse_via_smb_windows(url: &str) -> Result<Vec<FolderEntry>, String> {
 
     // Sin share → listar shares del servidor con `net view \\host /all`
     if share.is_empty() {
-        let out = tokio::process::Command::new("net")
+        let out = proc_cmd("net")
             .args(["view", &format!(r"\\{}", host), "/all"])
             .output().await
             .map_err(|e| format!("net view falló: {e}"))?;
@@ -2127,7 +2139,7 @@ async fn fetch_smb_to_cache_linux(url: String) -> Result<String, String> {
         "ls".to_string(),
     ];
     check_args.extend(smb_auth_args(&user, &pass));
-    let check = tokio::process::Command::new(smbclient_bin())
+    let check = proc_cmd(smbclient_bin())
         .args(&check_args)
         .output()
         .await
@@ -2145,7 +2157,7 @@ async fn fetch_smb_to_cache_linux(url: String) -> Result<String, String> {
     // Start the actual download in the background.
     let cache_path_bg = cache_path.clone();
     tokio::spawn(async move {
-        tokio::process::Command::new(smbclient_bin())
+        proc_cmd(smbclient_bin())
             .args(&args)
             .status()
             .await

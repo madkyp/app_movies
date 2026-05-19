@@ -30,6 +30,18 @@ fn ff_bin(name: &str) -> std::path::PathBuf {
 
 fn ffmpeg_bin() -> std::path::PathBuf { ff_bin("ffmpeg") }
 fn ffprobe_bin() -> std::path::PathBuf { ff_bin("ffprobe") }
+
+/// Creates a Command with CREATE_NO_WINDOW on Windows so no console flashes appear.
+fn proc_cmd(bin: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut c = tokio::process::Command::new(bin);
+    #[cfg(windows)]
+    {
+        use tokio::process::windows::CommandExt;
+        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    c
+}
 use axum::{
     Router,
     body::Body,
@@ -258,7 +270,7 @@ async fn h_play(
         "pipe:1".into(),
     ]);
 
-    let mut child = match tokio::process::Command::new(ffmpeg_bin())
+    let mut child = match proc_cmd(ffmpeg_bin())
         .args(&args)
         .stdin(if use_http_seek { Stdio::null() } else { Stdio::piped() })
         .stdout(Stdio::piped())
@@ -334,7 +346,7 @@ async fn probe_codecs(input: &str) -> (String, String) {
         }
     }
 
-    let probe_fut = tokio::process::Command::new(ffprobe_bin())
+    let probe_fut = proc_cmd(ffprobe_bin())
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -438,7 +450,7 @@ async fn h_play_plex(
         "pipe:1".into(),
     ]);
 
-    let mut child = match tokio::process::Command::new(ffmpeg_bin())
+    let mut child = match proc_cmd(ffmpeg_bin())
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -483,7 +495,7 @@ async fn h_tracks(
 
     // Probe with a tight timeout — torrent may only have 2-3 MB buffered at this point.
     // Match probesize to h_play so track detection is consistent with what gets encoded.
-    let probe_fut = tokio::process::Command::new(ffprobe_bin())
+    let probe_fut = proc_cmd(ffprobe_bin())
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -521,7 +533,7 @@ async fn h_subtitle(
     let stream_url = format!("http://127.0.0.1:{}/stream/{}/{}", state.port, id, file_id);
     let map_arg = format!("0:s:{}", sub_idx);
 
-    let mut child = match tokio::process::Command::new(ffmpeg_bin())
+    let mut child = match proc_cmd(ffmpeg_bin())
         .args([
             "-v", "quiet",
             "-i", &stream_url,
@@ -597,7 +609,7 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         "pipe:1".into(),
     ]);
 
-    let mut child = match tokio::process::Command::new(ffmpeg_bin())
+    let mut child = match proc_cmd(ffmpeg_bin())
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -633,7 +645,7 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
 
 // /tracks/local?path=... — ffprobe a filesystem/smb path to discover audio+subtitle tracks.
 async fn h_tracks_local(Query(params): Query<LocalPlayParams>) -> Response {
-    let probe_fut = tokio::process::Command::new(ffprobe_bin())
+    let probe_fut = proc_cmd(ffprobe_bin())
         .args([
             "-v", "quiet",
             "-print_format", "json",
