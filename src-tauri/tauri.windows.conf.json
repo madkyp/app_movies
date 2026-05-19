@@ -6,6 +6,6 @@
       "binaries/mpv",
       "binaries/yt-dlp"
     ],
-    "targets": ["msi", "nsis"]
+    "targets": ["nsis"]
   }
 }
