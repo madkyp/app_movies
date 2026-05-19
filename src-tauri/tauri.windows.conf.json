@@ -6,11 +6,6 @@
       "binaries/mpv",
       "binaries/yt-dlp"
     ],
-    "targets": ["nsis"],
-    "windows": {
-      "nsis": {
-        "displayName": "The Foundry: StreamDeck"
-      }
-    }
+    "targets": ["nsis"]
   }
 }
