@@ -83,8 +83,8 @@ fn proc_cmd(bin: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
     let mut c = tokio::process::Command::new(bin);
     #[cfg(windows)]
     {
-        use tokio::process::windows::CommandExt;
-        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        use std::os::windows::process::CommandExt;
+        c.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     c
 }
