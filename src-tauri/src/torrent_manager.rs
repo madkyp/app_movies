@@ -291,9 +291,29 @@ struct PlexPlayParams {
     start: Option<f64>,
 }
 
+// Codec probe cache: key = URL/path without query string, value = (video, audio).
+// Avoids re-probing the same file on every seek (which caused a 5 s delay and
+// browser video-element timeout on Plex playback).
+static CODEC_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, (String, String)>>> =
+    std::sync::OnceLock::new();
+
+fn codec_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, (String, String)>> {
+    CODEC_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 // Probe a file or URL to detect video/audio codec names (e.g. "h264", "aac").
+// Results are cached by base URL (query string stripped) so seeks are instant.
 // Returns empty strings on failure — callers fall back to full transcode.
 async fn probe_codecs(input: &str) -> (String, String) {
+    // Strip query string for cache key so ?start=N variants share the same entry
+    let cache_key = input.split('?').next().unwrap_or(input).to_string();
+
+    if let Ok(cache) = codec_cache().lock() {
+        if let Some(result) = cache.get(&cache_key) {
+            return result.clone();
+        }
+    }
+
     let probe_fut = tokio::process::Command::new(ffprobe_bin())
         .args([
             "-v", "quiet",
@@ -311,18 +331,25 @@ async fn probe_codecs(input: &str) -> (String, String) {
         _ => return (String::new(), String::new()),
     };
 
-    if let Ok(probed) = serde_json::from_slice::<FfprobeOutput>(&output.stdout) {
-        let video_codec = probed.streams.iter()
+    let (video_codec, audio_codec) = if let Ok(probed) = serde_json::from_slice::<FfprobeOutput>(&output.stdout) {
+        let v = probed.streams.iter()
             .find(|s| s.codec_type.as_deref() == Some("video"))
             .and_then(|s| s.codec_name.clone())
             .unwrap_or_default();
-        let audio_codec = probed.streams.iter()
+        let a = probed.streams.iter()
             .find(|s| s.codec_type.as_deref() == Some("audio"))
             .and_then(|s| s.codec_name.clone())
             .unwrap_or_default();
-        return (video_codec, audio_codec);
+        (v, a)
+    } else {
+        (String::new(), String::new())
+    };
+
+    if let Ok(mut cache) = codec_cache().lock() {
+        cache.insert(cache_key, (video_codec.clone(), audio_codec.clone()));
     }
-    (String::new(), String::new())
+
+    (video_codec, audio_codec)
 }
 
 fn build_codec_args(can_copy_video: bool, can_copy_audio: bool) -> Vec<String> {
