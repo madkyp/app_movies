@@ -287,6 +287,7 @@ export function Player() {
   const isBufferingRef = useRef(false); // for stable access in video onError handlers
   const plexRetries = useRef(0);        // retry count when Plex seek errors
   const localRetries = useRef(0);       // retry count when local file seek errors
+  const torrentRetries = useRef(0);     // retry count when torrent video errors on startup
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
@@ -363,6 +364,7 @@ export function Player() {
     setStartOffset(0);
     setTorrentStartOffset(0);
     bufferStart.current = Date.now();
+    torrentRetries.current = 0;
 
     const torrentId = streamInfo.id;
     let downloadedBytes = 0;
@@ -677,6 +679,7 @@ export function Player() {
 
   const handlePlay = useCallback(async (source: TorrentSource) => {
     if (!source.magnet) return;
+    if (streamInfoRef.current || connecting) return; // prevent double-start
     if (source.seeds === 0) {
       const ok = window.confirm(
         "Este torrent tiene 0 seeds — probablemente está muerto y no descargará nada.\n\n" +
@@ -1378,8 +1381,19 @@ export function Player() {
                       setIsMuted(videoRef.current.muted);
                     }}
                     onError={() => {
-                      invoke("open_in_mpv", { url: rawUrl, title: mpvTitle }).catch(() => {});
-                      setMpvLaunched(true);
+                      if (torrentRetries.current < 3) {
+                        torrentRetries.current++;
+                        setTimeout(() => {
+                          const v = videoRef.current;
+                          if (!v) return;
+                          v.load();
+                          v.play().catch(() => {});
+                        }, 1500);
+                      } else {
+                        torrentRetries.current = 0;
+                        invoke("open_in_mpv", { url: rawUrl, title: mpvTitle }).catch(() => {});
+                        setMpvLaunched(true);
+                      }
                     }}
                   >
                     {subUrl && (

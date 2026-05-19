@@ -837,22 +837,34 @@ impl TorrentManager {
         Ok(Self { session, api, port, cache_dir })
     }
 
+    fn fresh_opts() -> AddTorrentOptions {
+        AddTorrentOptions { overwrite: true, ..AddTorrentOptions::default() }
+    }
+
     pub async fn add_torrent(&self, magnet: &str) -> anyhow::Result<TorrentStreamInfo> {
-        let add = AddTorrent::from_url(magnet);
-        // overwrite=true so the file can be written while streaming
-        let opts = AddTorrentOptions {
-            overwrite: true,
-            ..AddTorrentOptions::default()
-        };
         let response = self
             .session
-            .add_torrent(add, Some(opts))
+            .add_torrent(AddTorrent::from_url(magnet), Some(Self::fresh_opts()))
             .await
             .context("librqbit session.add_torrent failed")?;
 
         let id: usize = match response {
             AddTorrentResponse::Added(id, _) => id,
-            AddTorrentResponse::AlreadyManaged(id, _) => id,
+            // Stale torrent from a previous session (stop_torrent may not have finished yet).
+            // Delete it and re-add so we always start with a clean, zero-progress state.
+            AddTorrentResponse::AlreadyManaged(existing_id, _) => {
+                let _ = self.api.api_torrent_action_delete(TorrentIdOrHash::Id(existing_id)).await;
+                let response2 = self
+                    .session
+                    .add_torrent(AddTorrent::from_url(magnet), Some(Self::fresh_opts()))
+                    .await
+                    .context("librqbit re-add after AlreadyManaged failed")?;
+                match response2 {
+                    AddTorrentResponse::Added(new_id, _) => new_id,
+                    AddTorrentResponse::AlreadyManaged(id2, _) => id2,
+                    AddTorrentResponse::ListOnly(_) => anyhow::bail!("Torrent returned ListOnly on re-add"),
+                }
+            },
             AddTorrentResponse::ListOnly(_) => anyhow::bail!("Torrent returned ListOnly — no peers or bad magnet"),
         };
 
