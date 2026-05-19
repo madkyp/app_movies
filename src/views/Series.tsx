@@ -18,12 +18,31 @@ const GENRES = [
   { id: 10767, name: "Talk Show" },
 ];
 
+const RATINGS = [
+  { value: 0, label: "Todas" },
+  { value: 6, label: "6+" },
+  { value: 7, label: "7+" },
+  { value: 8, label: "8+" },
+  { value: 9, label: "9+" },
+];
+
+const currentYear = new Date().getFullYear();
+const YEARS: { value: number; label: string }[] = [
+  { value: 0, label: "Todos los años" },
+  ...Array.from({ length: currentYear - 1979 }, (_, i) => {
+    const y = currentYear - i;
+    return { value: y, label: String(y) };
+  }),
+];
+
 export function Series() {
   const { settings, setView } = useStore();
   const { fetchDetail } = useMediaDetail();
   const [series, setSeries] = useState<Media[]>([]);
   const [loading, setLoading] = useState(false);
   const [genre, setGenre] = useState(0);
+  const [year, setYear] = useState(0);
+  const [minRating, setMinRating] = useState(0);
   const [page, setPage] = useState(1);
   const [, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -37,13 +56,22 @@ export function Series() {
     return rect.top < window.innerHeight + 200;
   };
 
-  const loadPage = useCallback((pg: number, gn: number, append: boolean) => {
+  const loadPage = useCallback((pg: number, gn: number, yr: number, rt: number, append: boolean) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
-    const genreParam = gn ? `&with_genres=${gn}` : "";
-    fetch(`${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&language=es-ES&sort_by=popularity.desc&page=${pg}${genreParam}`)
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      language: "es-ES",
+      sort_by: "popularity.desc",
+      page: String(pg),
+    });
+    if (gn) params.set("with_genres", String(gn));
+    if (yr) params.set("first_air_date_year", String(yr));
+    if (rt) { params.set("vote_average.gte", String(rt)); params.set("vote_count.gte", "50"); }
+
+    fetch(`${TMDB_BASE_URL}/discover/tv?${params}`)
       .then((r) => r.json())
       .then((d) => {
         const results: Media[] = d.results.map((m: Media) => ({ ...m, media_type: "tv" as const }));
@@ -67,12 +95,12 @@ export function Series() {
     setSeries([]);
     setPage(1);
     setHasMore(true);
-    loadPage(1, genre, false);
-  }, [genre, settings.tmdbApiKey]);
+    loadPage(1, genre, year, minRating, false);
+  }, [genre, year, minRating, settings.tmdbApiKey]);
 
   useEffect(() => {
     if (page === 1) return;
-    loadPage(page, genre, true);
+    loadPage(page, genre, year, minRating, true);
   }, [page]);
 
   useEffect(() => {
@@ -95,24 +123,51 @@ export function Series() {
     setView("detail");
   }
 
+  const pillCls = (active: boolean) =>
+    `px-3 py-1 rounded-full text-xs font-medium transition-all border ${
+      active
+        ? "bg-accent text-white border-accent"
+        : "bg-bg-card text-text-secondary border-border hover:border-accent/50 hover:text-white"
+    }`;
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5">
       <h1 className="text-white text-xl font-bold mb-4">Series</h1>
 
-      <div className="flex gap-2 flex-wrap mb-5">
+      {/* Género */}
+      <div className="flex gap-2 flex-wrap mb-3">
         {GENRES.map((g) => (
-          <button
-            key={g.id}
-            onClick={() => setGenre(g.id)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${
-              genre === g.id
-                ? "bg-accent text-white border-accent"
-                : "bg-bg-card text-text-secondary border-border hover:border-accent/50 hover:text-white"
-            }`}
-          >
+          <button key={g.id} onClick={() => setGenre(g.id)} className={pillCls(genre === g.id)}>
             {g.name}
           </button>
         ))}
+      </div>
+
+      {/* Año + Puntuación */}
+      <div className="flex items-center gap-4 mb-5 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-text-muted text-xs">Año</span>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="bg-bg-card border border-border text-text-secondary text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-accent/50 hover:border-accent/30 transition-colors"
+          >
+            {YEARS.map((y) => (
+              <option key={y.value} value={y.value}>{y.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-text-muted text-xs">Puntuación</span>
+          <div className="flex gap-1">
+            {RATINGS.map((r) => (
+              <button key={r.value} onClick={() => setMinRating(r.value)} className={pillCls(minRating === r.value)}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {series.length === 0 && loading ? (
