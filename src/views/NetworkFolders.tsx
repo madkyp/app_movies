@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   FolderOpen, FolderPlus, ChevronRight, Play, Trash2,
   ArrowLeft, Loader2, AlertCircle, HardDrive, Film, Music,
+  Search, ArrowUpDown,
 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { cn } from "../lib/utils";
 import type { FolderEntry, SavedFolder } from "../types";
+
+type SortKey = "name-asc" | "name-desc" | "ext" | "dirs-first";
+type TypeFilter = "all" | "video" | "audio" | "dirs";
 
 const VIDEO_EXTS = new Set(["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "webm", "m2ts", "mpg", "mpeg"]);
 const AUDIO_EXTS = new Set(["flac", "mp3", "aac", "m4a", "ogg", "wav", "opus"]);
@@ -37,6 +41,35 @@ export function NetworkFolders() {
   const [entries, setEntries] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("dirs-first");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+
+  const visibleEntries = useMemo(() => {
+    let list = entries;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((e) => e.name.toLowerCase().includes(q));
+    }
+    if (typeFilter === "video") list = list.filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension));
+    else if (typeFilter === "audio") list = list.filter((e) => !e.is_dir && AUDIO_EXTS.has(e.extension));
+    else if (typeFilter === "dirs") list = list.filter((e) => e.is_dir);
+
+    list = [...list].sort((a, b) => {
+      if (sortKey === "dirs-first") {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      }
+      if (sortKey === "name-asc") return a.name.localeCompare(b.name);
+      if (sortKey === "name-desc") return b.name.localeCompare(a.name);
+      if (sortKey === "ext") {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        return a.extension.localeCompare(b.extension) || a.name.localeCompare(b.name);
+      }
+      return 0;
+    });
+    return list;
+  }, [entries, search, sortKey, typeFilter]);
 
   // Add-folder form
   const [showAdd, setShowAdd] = useState(false);
@@ -62,6 +95,8 @@ export function NetworkFolders() {
   const openFolder = async (path: string, name: string, push = true) => {
     setError(null);
     setLoading(true);
+    setSearch("");
+    setTypeFilter("all");
     try {
       const result = await invoke<FolderEntry[]>("browse_folder", { path });
       setEntries(result);
@@ -325,11 +360,63 @@ export function NetworkFolders() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-border flex-shrink-0">
-        <button onClick={goBack} className="btn-ghost py-1 px-2 text-xs flex-shrink-0">
-          <ArrowLeft size={13} /> Volver
-        </button>
-        <Breadcrumb />
+      <div className="flex flex-col gap-2 px-6 py-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button onClick={goBack} className="btn-ghost py-1 px-2 text-xs flex-shrink-0">
+            <ArrowLeft size={13} /> Volver
+          </button>
+          <Breadcrumb />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[140px] max-w-xs">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-bg-secondary border border-border rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-text-muted focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          {/* Type filter */}
+          <div className="flex gap-1">
+            {(["all", "dirs", "video", "audio"] as TypeFilter[]).map((f) => {
+              const label = f === "all" ? "Todo" : f === "dirs" ? "Carpetas" : f === "video" ? "Vídeo" : "Audio";
+              return (
+                <button
+                  key={f}
+                  onClick={() => setTypeFilter(f)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
+                    typeFilter === f
+                      ? "bg-accent text-white border-accent"
+                      : "bg-bg-card text-text-secondary border-border hover:border-accent/50 hover:text-white"
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sort */}
+          <div className="flex items-center gap-1 ml-auto">
+            <ArrowUpDown size={13} className="text-text-muted" />
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="dirs-first">Carpetas primero</option>
+              <option value="name-asc">Nombre A→Z</option>
+              <option value="name-desc">Nombre Z→A</option>
+              <option value="ext">Por extensión</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Content */}
@@ -354,9 +441,16 @@ export function NetworkFolders() {
           </div>
         )}
 
+        {!loading && !error && entries.length > 0 && visibleEntries.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted gap-3">
+            <Search size={40} className="opacity-20" />
+            <p className="text-sm">Sin resultados para los filtros actuales</p>
+          </div>
+        )}
+
         {!loading && !error && (
           <div className="space-y-1 max-w-3xl">
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <div
                 key={entry.path}
                 onClick={() => entry.is_dir ? openFolder(entry.path, entry.name) : playFile(entry)}
