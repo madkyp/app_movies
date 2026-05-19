@@ -19,6 +19,7 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
   - [Mis Carpetas — NAS y red local](#mis-carpetas--nas-y-red-local)
   - [Reproductor integrado](#reproductor-integrado)
   - [Subtítulos externos](#subtítulos-externos)
+  - [Historial](#historial)
 - [Plataformas](#plataformas)
 - [Stack tecnológico](#stack-tecnológico)
 - [Instalación en Linux](#instalación-en-linux)
@@ -48,7 +49,14 @@ Pantalla de inicio con sección hero, tendencias de la semana, películas y seri
 
 ### Continuar viendo
 
-La app guarda automáticamente el progreso de reproducción cada 10 segundos. La pantalla de inicio muestra una fila **"Continuar viendo"** con las películas y series a medio ver, con barra de progreso y tiempo restante. Al pulsar sobre un elemento, el reproductor arranca directamente desde el punto donde lo dejaste con una notificación que permite reiniciar desde el principio si se prefiere.
+La app guarda automáticamente el progreso de reproducción cada 10 segundos. La pantalla de inicio muestra una fila **"Continuar viendo"** con las películas y series a medio ver, con barra de progreso y tiempo restante.
+
+Al pulsar sobre un elemento el reproductor retoma exactamente donde lo dejaste:
+- **Torrents**: se guarda el magnet link junto al progreso. Al reanudar, el torrent arranca automáticamente sin pasar por el selector de fuentes y salta al minuto guardado mediante priorización de piezas en librqbit.
+- **Archivos locales / NAS**: abre el archivo y posiciona el reproductor en el segundo guardado.
+- **Plex**: reanuda desde el offset exacto via ffmpeg.
+
+La misma funcionalidad está disponible en la sección **Historial**, que además muestra una barra de progreso en cada miniatura.
 
 ### Detalle de película o serie
 
@@ -58,7 +66,7 @@ Vista con sinopsis, puntuación, año, duración, géneros y reparto principal. 
 
 Busca fuentes en **YTS** (películas) y **EZTV** (series) directamente desde la app. Cada resultado muestra la calidad (4K / 1080p), idioma (ESP / LAT / DUAL), códec (x265 / x264), tamaño y número de seeds. Los resultados se ordenan **primero por idioma español** (ESP, LAT, DUAL) y después por seeds descendente.
 
-Al pulsar Play, la descarga empieza y la reproducción comienza de inmediato gracias al motor integrado **librqbit**. El reproductor soporta **seek real**: al avanzar a un punto no descargado, librqbit prioriza las piezas de ese offset y empieza a reproducir desde ahí en cuanto tiene suficiente buffer.
+Al pulsar Play, la descarga empieza y la reproducción comienza de inmediato gracias al motor integrado **librqbit**. El reproductor soporta **seek real**: al avanzar a un punto no descargado, librqbit prioriza automáticamente las piezas de ese offset y reanuda la reproducción en cuanto tiene buffer suficiente, sin necesidad de descargar desde el principio.
 
 ### Series — Temporadas y episodios
 
@@ -95,6 +103,10 @@ Selector de **pista de audio** para archivos con varios idiomas. Opción de abri
 ### Subtítulos externos
 
 Busca y descarga subtítulos de **OpenSubtitles** desde el panel de subtítulos en el reproductor. Compatible con los tres modos de reproducción. Requiere una API key gratuita de OpenSubtitles (configurable en Ajustes).
+
+### Historial
+
+Registro completo de reproducciones con miniatura, barra de progreso, fuente (torrent / Plex / local) y tiempo transcurrido. Permite reanudar cualquier entrada con un clic — los torrents con magnet guardado arrancan directamente al minuto guardado, igual que desde "Continuar viendo". Entradas individuales eliminables o borrado completo del historial.
 
 ---
 
