@@ -26,7 +26,7 @@ function ContinueWatchingRow({ items, onSelect }: { items: HistoryEntry[]; onSel
         {items.map((entry) => {
           const pct = entry.durationSecs ? Math.min(entry.progressSecs! / entry.durationSecs, 1) : 0;
           const poster = entry.poster
-            ? `${TMDB_IMAGE_BASE}w185${entry.poster}`
+            ? `${TMDB_IMAGE_BASE}/w185${entry.poster}`
             : null;
           return (
             <button

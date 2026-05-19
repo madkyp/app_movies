@@ -41,12 +41,18 @@ function TypeIcon({ type }: { type: HistoryEntry["media_type"] }) {
 }
 
 export function History() {
-  const { history, removeFromHistory, clearHistory, setView, setLocalFileUrl } = useStore();
+  const { history, removeFromHistory, clearHistory, setView, setLocalFileUrl, setPendingTorrentResume } = useStore();
   const { fetchDetail } = useMediaDetail();
 
   async function handleOpen(entry: HistoryEntry) {
     if (entry.media_type === "file" && entry.path) {
       setLocalFileUrl(entry.path, entry.title);
+      setView("player");
+      return;
+    }
+    if (entry.source === "torrent" && entry.magnet && entry.tmdb_id) {
+      setPendingTorrentResume({ magnet: entry.magnet, episode: entry.episode });
+      await fetchDetail(entry.tmdb_id, entry.media_type as "movie" | "tv");
       setView("player");
       return;
     }
@@ -88,7 +94,7 @@ export function History() {
             onClick={() => handleOpen(entry)}
           >
             {/* Poster */}
-            <div className="w-14 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-bg-secondary">
+            <div className="w-14 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-bg-secondary relative">
               {entry.poster ? (
                 <img
                   src={`${TMDB_IMAGE_BASE}/w92${entry.poster}`}
@@ -98,6 +104,14 @@ export function History() {
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   <TypeIcon type={entry.media_type} />
+                </div>
+              )}
+              {entry.progressSecs && entry.durationSecs && entry.durationSecs > 0 && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                  <div
+                    className="h-full bg-accent"
+                    style={{ width: `${Math.min(entry.progressSecs / entry.durationSecs, 1) * 100}%` }}
+                  />
                 </div>
               )}
             </div>
