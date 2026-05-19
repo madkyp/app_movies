@@ -174,11 +174,11 @@ curl -fsSL "https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh"
 
 ## Instalación en Windows
 
-[![Download](https://img.shields.io/github/v/release/madkyp/app_movies?label=Descargar%20para%20Windows&logo=windows&color=0078d4)](https://github.com/madkyp/app_movies/releases/latest/download/The.Foundry.StreamDeck_0.1.0_x64-setup.exe)
+[![Descargar para Windows](https://img.shields.io/badge/Descargar-Windows%20Installer-0078d4?logo=windows)](https://github.com/madkyp/app_movies/releases/download/Pre-release/The.Foundry.StreamDeck_main_x64-setup.zip)
 
-Descarga el installer desde la sección [**Releases**](https://github.com/madkyp/app_movies/releases/latest) o pulsa el botón de arriba. El archivo se llama `The Foundry StreamDeck_x.x.x_x64-setup.exe`.
+Descarga el ZIP desde el botón de arriba o desde la sección [**Releases**](https://github.com/madkyp/app_movies/releases). Extrae el ZIP y ejecuta el `.exe` que hay dentro.
 
-**ffmpeg, ffprobe y mpv van incluidos** — no necesitas instalar nada más. Ejecuta el `.exe` y sigue el asistente.
+**ffmpeg, ffprobe y mpv van incluidos** — no necesitas instalar nada más.
 
 ---
 
