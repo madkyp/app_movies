@@ -229,7 +229,7 @@ export function NetworkFolders() {
                 ref={pathInputRef}
                 type="text"
                 placeholder={isWindows
-                  ? "C:\\Videos  |  Z:\\  |  smb://192.168.1.10/Peliculas"
+                  ? "C:\\Videos  |  \\\\192.168.1.10\\Peliculas  |  Z:\\"
                   : "/mnt/nas/Peliculas  |  smb://192.168.1.10"
                 }
                 value={addPath}
@@ -312,9 +312,9 @@ export function NetworkFolders() {
             {isWindows ? (
               <p className="text-text-muted text-[10px] leading-relaxed">
                 <strong className="text-text-secondary">Local:</strong> <code className="bg-bg-secondary px-1 rounded">C:\Videos</code> —{" "}
-                <strong className="text-text-secondary">Unidad mapeada:</strong> <code className="bg-bg-secondary px-1 rounded">Z:\</code> —{" "}
-                <strong className="text-text-secondary">Red (SMB):</strong> <code className="bg-bg-secondary px-1 rounded">smb://192.168.1.10/Peliculas</code>.{" "}
-                Deja usuario vacío para acceso de invitado.
+                <strong className="text-text-secondary">Red UNC:</strong> <code className="bg-bg-secondary px-1 rounded">\\192.168.1.10\Peliculas</code> —{" "}
+                <strong className="text-text-secondary">Unidad mapeada:</strong> <code className="bg-bg-secondary px-1 rounded">Z:\</code>.{" "}
+                Para NAS con contraseña usa <code className="bg-bg-secondary px-1 rounded">smb://usuario:pass@ip/share</code>.
               </p>
             ) : (
               <p className="text-text-muted text-[10px] leading-relaxed">
