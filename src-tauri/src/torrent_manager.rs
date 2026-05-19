@@ -197,8 +197,10 @@ async fn h_stream(
 }
 
 // /play/{id}/{file_id}?audio=N&start=T — ffmpeg → fragmented MP4 for in-app <video>.
-// Pipes librqbit stream directly to ffmpeg stdin so ffmpeg reads sequentially without
-// HTTP Range seeks that would block on undownloaded torrent pieces.
+// On Linux: for initial play (start=0) we pipe the librqbit stream to ffmpeg stdin so
+// ffmpeg reads sequentially without blocking on undownloaded pieces.
+// On Windows: always use the HTTP input mode because tokio's async stdin pipe is
+// unreliable with librqbit's stream reader on IOCP, causing ffmpeg to stall.
 async fn h_play(
     Path((id, file_id)): Path<(usize, usize)>,
     Query(params): Query<PlayParams>,
@@ -207,19 +209,14 @@ async fn h_play(
     let audio_idx = params.audio.unwrap_or(0);
     let start_secs = params.start.unwrap_or(0.0);
     let audio_map_opt = format!("0:a:{}?", audio_idx);
-    let start_str = format!("{:.3}", start_secs);
     let torrent_id = librqbit::api::TorrentIdOrHash::Id(id);
 
-    // For initial play (start=0): pipe librqbit stream to ffmpeg stdin — starts
-    // the moment 2 MB are downloaded without blocking on random pieces.
-    //
-    // For seeks (start>0): use the librqbit HTTP stream URL with input seeking
-    // so ffmpeg sends a Range request and librqbit prioritises pieces at that position.
-    let use_http_seek = start_secs > 0.5;
+    // On Windows always use HTTP input; on Linux use pipe only for initial play (start≈0).
+    let use_http_input = start_secs > 0.5 || cfg!(target_os = "windows");
     let stream_http_url = format!("http://127.0.0.1:{}/stream/{}/{}", state.port, id, file_id);
 
-    // Open pipe stream only when we need it (initial play mode).
-    let maybe_pipe = if !use_http_seek {
+    // Open pipe stream only when we need it (Linux initial play mode).
+    let maybe_pipe = if !use_http_input {
         match state.api.api_stream(torrent_id, file_id) {
             Ok(s) => Some(s),
             Err(e) => return Response::builder()
@@ -233,18 +230,20 @@ async fn h_play(
 
     let mut args: Vec<String> = vec!["-v".into(), "error".into()];
 
-    if use_http_seek {
-        // Input seeking via HTTP: ffmpeg sends Range request to librqbit,
-        // which downloads the missing pieces on demand and then streams them.
+    if use_http_input {
+        // HTTP input: ffmpeg sends a Range request to librqbit.
+        // On seek (start > 0.5 s): also pass -ss so ffmpeg decodes from the right position.
         args.extend([
             "-analyzeduration".into(), "2000000".into(),
-            "-probesize".into(), "5000000".into(),
+            "-probesize".into(), "500000".into(),
             "-fflags".into(), "+genpts+discardcorrupt".into(),
-            "-ss".into(), start_str,
-            "-i".into(), stream_http_url,
         ]);
+        if start_secs > 0.5 {
+            args.extend(["-ss".into(), format!("{:.3}", start_secs)]);
+        }
+        args.extend(["-i".into(), stream_http_url]);
     } else {
-        // Sequential pipe — no seeking, no blocking, fast start.
+        // Sequential pipe (Linux initial play only) — no seeking, fast start.
         args.extend([
             "-analyzeduration".into(), "1000000".into(),
             "-probesize".into(), "500000".into(),
@@ -272,7 +271,7 @@ async fn h_play(
 
     let mut child = match proc_cmd(ffmpeg_bin())
         .args(&args)
-        .stdin(if use_http_seek { Stdio::null() } else { Stdio::piped() })
+        .stdin(if use_http_input { Stdio::null() } else { Stdio::piped() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -284,7 +283,7 @@ async fn h_play(
             .unwrap(),
     };
 
-    // Pipe librqbit stream → ffmpeg stdin (initial play only).
+    // Pipe librqbit stream → ffmpeg stdin (Linux initial play only).
     if let Some(mut rqbit_read) = maybe_pipe {
         if let Some(mut ffmpeg_stdin) = child.stdin.take() {
             tokio::spawn(async move {
