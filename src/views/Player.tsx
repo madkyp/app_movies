@@ -370,6 +370,10 @@ export function Player() {
     let downloadedBytes = 0;
     let peers = 0;
     let fired = false;
+    // Peak downloaded bytes — used to detect a librqbit piece-check reset
+    // (Windows: librqbit may report cached bytes from a prior session, then
+    //  drop back to 0 once it verifies pieces on disk and restarts the download).
+    let peakDownloaded = 0;
 
     const bail = (msg: string) => {
       clearInterval(statsInterval.current!);
@@ -388,12 +392,26 @@ export function Player() {
       try {
         const s = await invoke<TorrentStats>("get_torrent_stats", { id: torrentId });
         setStats(s);
+
+        // Detect a librqbit download reset: progress dropped >70 % from a peak >5 MB.
+        // This happens on Windows when librqbit reports cached/phantom bytes then re-checks
+        // pieces on disk and restarts from zero. Reset our state and restart the timer so
+        // Phase 2 (real download) gets a fresh bail window.
+        if (peakDownloaded > 5 * 1024 * 1024 && s.downloaded_bytes < peakDownloaded * 0.3) {
+          fired = false;
+          peakDownloaded = 0;
+          bufferStart.current = Date.now(); // give real download a fresh timeout window
+        }
+        if (s.downloaded_bytes > peakDownloaded) {
+          peakDownloaded = s.downloaded_bytes;
+        }
+
         downloadedBytes = s.downloaded_bytes;
         peers = s.peers;
 
-        // Start playback once metadata resolves and 2 MB downloaded.
-        // Do NOT call setStreamInfo here — it would re-trigger this effect.
-        if (!fired && s.total_bytes > 0 && s.downloaded_bytes >= 2 * 1024 * 1024) {
+        // Only trigger playback once we have real peers AND enough data.
+        // Requiring peers > 0 prevents firing on phantom cached data (0 peers).
+        if (!fired && s.total_bytes > 0 && s.peers > 0 && s.downloaded_bytes >= 2 * 1024 * 1024) {
           fired = true;
           const fileIdx = await invoke<number>("find_video_file", { id: torrentId }).catch(() => 0);
           setVideoFileIdx(fileIdx);
@@ -403,12 +421,12 @@ export function Player() {
         console.warn("stats poll failed (metadata phase?):", e);
       }
 
-      if (elapsed > 20_000 && downloadedBytes < 1024 && peers === 0) {
-        bail("Sin peers después de 20 s — el torrent parece muerto. Prueba otra fuente.");
+      if (elapsed > 30_000 && downloadedBytes < 1024 && peers === 0) {
+        bail("Sin peers después de 30 s — el torrent parece muerto. Prueba otra fuente.");
         return;
       }
-      if (elapsed > 45_000 && downloadedBytes < 100 * 1024) {
-        bail("Timeout: sin datos después de 45 s. Prueba otra fuente.");
+      if (elapsed > 90_000 && downloadedBytes < 100 * 1024) {
+        bail("Timeout: sin datos después de 90 s. Prueba otra fuente.");
       }
     }, 1000);
     return () => { if (statsInterval.current) clearInterval(statsInterval.current); };
