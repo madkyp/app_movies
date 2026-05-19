@@ -1986,7 +1986,24 @@ async fn browse_via_smb_windows(url: &str) -> Result<Vec<FolderEntry>, String> {
     Ok(entries)
 }
 
-/// Start downloading an SMB file to /tmp cache and return the local path once
+pub fn smb_cache_dir() -> std::path::PathBuf {
+    std::env::var("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".cache"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        })
+        .join("streamdeck/smb")
+}
+
+#[tauri::command]
+pub async fn clear_smb_cache() -> Result<(), String> {
+    let _ = tokio::fs::remove_dir_all(smb_cache_dir()).await;
+    Ok(())
+}
+
+/// Start downloading an SMB file to cache and return the local path once
 /// enough data is available to start playback. The download continues in the
 /// background so ffmpeg can read the growing file while it downloads.
 #[tauri::command]
@@ -2028,16 +2045,7 @@ async fn fetch_smb_to_cache_linux(url: String) -> Result<String, String> {
     let ext = subpath.rsplit('.').next()
         .filter(|e| e.len() <= 5 && !e.contains('/'))
         .unwrap_or("mkv");
-    // Use XDG cache dir on real disk — /tmp is tmpfs (RAM) on CachyOS and can't
-    // hold large video files (e.g. a 4 GB MKV fills RAM-based /tmp immediately).
-    let cache_dir = std::env::var("XDG_CACHE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .map(|h| std::path::PathBuf::from(h).join(".cache"))
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
-        })
-        .join("streamdeck/smb");
+    let cache_dir = smb_cache_dir();
     let cache_path = cache_dir.join(format!("{:016x}.{}", hash, ext));
     let cache_path = cache_path.to_string_lossy().to_string();
 

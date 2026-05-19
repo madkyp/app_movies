@@ -459,6 +459,8 @@ export function Player() {
     return () => {
       if (statsInterval.current) clearInterval(statsInterval.current);
       if (streamInfo) invoke("stop_torrent", { id: streamInfo.id }).catch(() => {});
+      // Delete SMB cached file when leaving player (can be several GB)
+      invoke("clear_smb_cache").catch(() => {});
     };
   }, [streamInfo]);
 

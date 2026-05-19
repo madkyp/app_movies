@@ -64,6 +64,9 @@ pub fn run() {
                 torrent_manager::RESOURCE_DIR.set(dir).ok();
             }
 
+            // Clean SMB download cache left over from previous session
+            let _ = std::fs::remove_dir_all(commands::smb_cache_dir());
+
             log::info!("StreamDeck started");
             Ok(())
         })
@@ -83,6 +86,7 @@ pub fn run() {
             commands::get_youtube_stream_url,
             commands::search_subtitles,
             commands::download_subtitle,
+            commands::clear_smb_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
