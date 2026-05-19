@@ -1,4 +1,4 @@
-# TheFoundry StreamDeck
+# The Foundry: StreamDeck
 
 Una aplicación de escritorio para **Linux y Windows** que unifica tu experiencia multimedia: catálogo de películas y series con streaming por torrent, integración con Plex, y acceso a carpetas de red (NAS/SMB) — todo desde una interfaz elegante inspirada en las grandes plataformas de streaming.
 
@@ -114,7 +114,7 @@ Registro completo de reproducciones con miniatura, barra de progreso, fuente (to
 
 | | Linux | Windows |
 |---|---|---|
-| **Instalación** | Script automático | Installer `.msi` / `.exe` |
+| **Instalación** | Script automático | Installer `.exe` (NSIS) |
 | **Torrents** | ✅ | ✅ |
 | **Plex** | ✅ | ✅ |
 | **NAS / SMB** | smbclient | UNC nativo (`net use`) |
@@ -174,7 +174,11 @@ curl -fsSL "https://raw.githubusercontent.com/madkyp/app_movies/main/install.sh"
 
 ## Instalación en Windows
 
-Descarga el installer `.msi` o `.exe` desde la sección [Releases](https://github.com/madkyp/app_movies/releases). ffmpeg, ffprobe y mpv van incluidos — no necesitas instalar nada más.
+[![Download](https://img.shields.io/github/v/release/madkyp/app_movies?label=Descargar%20para%20Windows&logo=windows&color=0078d4)](https://github.com/madkyp/app_movies/releases/latest/download/The.Foundry.StreamDeck_0.1.0_x64-setup.exe)
+
+Descarga el installer desde la sección [**Releases**](https://github.com/madkyp/app_movies/releases/latest) o pulsa el botón de arriba. El archivo se llama `The Foundry StreamDeck_x.x.x_x64-setup.exe`.
+
+**ffmpeg, ffprobe y mpv van incluidos** — no necesitas instalar nada más. Ejecuta el `.exe` y sigue el asistente.
 
 ---
 
