@@ -121,17 +121,16 @@ export function Movies() {
       {movies.length === 0 && loading ? (
         <div className="flex justify-center py-20"><Spinner size={32} /></div>
       ) : (
-        <>
-          <div className="flex flex-wrap gap-3">
-            {movies.map((m) => (
-              <MediaCard key={m.id} media={m} onClick={handleSelect} />
-            ))}
-          </div>
-          <div ref={sentinelRef} className="flex justify-center py-6">
-            {loading && <Spinner size={24} />}
-          </div>
-        </>
+        <div className="flex flex-wrap gap-3">
+          {movies.map((m) => (
+            <MediaCard key={m.id} media={m} onClick={handleSelect} />
+          ))}
+        </div>
       )}
+
+      <div ref={sentinelRef} className="flex justify-center py-6">
+        {loading && movies.length > 0 && <Spinner size={24} />}
+      </div>
     </div>
   );
 }
