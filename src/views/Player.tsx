@@ -6,6 +6,16 @@ import { useSeasonEpisodes } from "../hooks/useTmdb";
 import { cn, TMDB_IMAGE_BASE } from "../lib/utils";
 import type { TorrentSource, Episode, SubtitleResult } from "../types";
 
+function fmtTimestamp(s: number): string {
+  if (!isFinite(s) || s < 0) return "0:00";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
 function srtToVtt(srt: string): string {
   return "WEBVTT\n\n" + srt
     .replace(/\r\n/g, "\n").replace(/\r/g, "\n")
@@ -192,7 +202,7 @@ function sortSources(sources: TorrentSource[]): TorrentSource[] {
 
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
-  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, settings } = useStore();
+  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings } = useStore();
 
   // SMB: download to local cache before playing
   const [effectiveLocalPath, setEffectiveLocalPath] = useState<string | null>(null);
@@ -265,6 +275,17 @@ export function Player() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const statsInterval = useRef<ReturnType<typeof setInterval>>(null);
   const bufferStart = useRef<number>(0);
+
+  // Refs for stable access inside keyboard/interval callbacks
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const startOffsetRef = useRef(0);
+  const currentHistoryId = useRef<string | null>(null);
+  const pendingResumeAt = useRef(0); // for torrent: seek target after tracksReady
+  const seekFn = useRef<((t: number) => void) | null>(null);
+
+  // Resume toast: non-null when we auto-resumed from history
+  const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
 
   // ── Default season when media changes ────────────────────────────────────────
   useEffect(() => {
@@ -405,9 +426,22 @@ export function Player() {
     if (plexDirectUrl) {
       setIsBuffering(true);
       setPlexVideoError(false);
+      setResumeToast(null);
       if (plexDirectDuration > 0) setDuration(plexDirectDuration);
+
+      const histId = `plex-${media?.id ?? plexDirectUrl}`;
+      currentHistoryId.current = histId;
+      const saved = history.find((h) => h.id === histId);
+      if (saved?.progressSecs && saved.progressSecs > 30 &&
+          saved.durationSecs && saved.progressSecs < saved.durationSecs * 0.9) {
+        setStartOffset(saved.progressSecs);
+        setResumeToast({ at: saved.progressSecs });
+      } else {
+        setStartOffset(0);
+      }
+
       addToHistory({
-        id: `plex-${media?.id ?? plexDirectUrl}`,
+        id: histId,
         title,
         poster: media?.poster_path ?? null,
         media_type: isSeries ? "tv" : "movie",
@@ -426,13 +460,25 @@ export function Player() {
     setSelectedSub(-1);
     setCurrentTime(0);
     setDuration(0);
-    setStartOffset(0);
     setLocalVideoError(false);
     setSmbError(null);
+    setResumeToast(null);
+
+    // Check history for a saved position before resetting startOffset
+    const histId = `local-${localFileUrl}`;
+    currentHistoryId.current = histId;
+    const saved = history.find((h) => h.id === histId);
+    if (saved?.progressSecs && saved.progressSecs > 30 &&
+        saved.durationSecs && saved.progressSecs < saved.durationSecs * 0.9) {
+      setStartOffset(saved.progressSecs);
+      setResumeToast({ at: saved.progressSecs });
+    } else {
+      setStartOffset(0);
+    }
 
     // History for local files
     addToHistory({
-      id: `local-${localFileUrl}`,
+      id: histId,
       title: localFileTitle || localFileUrl.split(/[\\/]/).pop() || localFileUrl,
       poster: null,
       media_type: "file",
@@ -473,6 +519,67 @@ export function Player() {
       invoke("clear_smb_cache").catch(() => {});
     };
   }, [streamInfo]);
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const v = videoRef.current;
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          if (v) v.paused ? v.play() : v.pause();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          seekFn.current?.(Math.max(0, currentTimeRef.current - 10));
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          seekFn.current?.(currentTimeRef.current + 10);
+          break;
+        case "f": case "F":
+          e.preventDefault();
+          v?.requestFullscreen().catch(() => {});
+          break;
+        case "m": case "M":
+          e.preventDefault();
+          if (v) { v.muted = !v.muted; setIsMuted(v.muted); }
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []); // stable: only uses refs
+
+  // ── Progress auto-save every 10 s ───────────────────────────────────────────
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (currentHistoryId.current && durationRef.current > 0 && currentTimeRef.current > 5) {
+        updateHistoryProgress(currentHistoryId.current, currentTimeRef.current, durationRef.current);
+      }
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [updateHistoryProgress]);
+
+  // ── After torrent tracksReady: apply pending resume seek ────────────────────
+  useEffect(() => {
+    if (!tracksReady || !streamInfo) return;
+    if (pendingResumeAt.current > 0) {
+      const target = pendingResumeAt.current;
+      pendingResumeAt.current = 0;
+      setTimeout(() => {
+        const v = videoRef.current;
+        if (v) { v.currentTime = target; setCurrentTime(target); }
+      }, 800);
+    }
+  }, [tracksReady, streamInfo?.id]);
+
+  // Sync refs with latest state values (safe to do in render body)
+  currentTimeRef.current = currentTime;
+  durationRef.current = duration;
+  startOffsetRef.current = startOffset;
 
   const handleSubSearch = useCallback(async () => {
     setSubResults([]);
@@ -536,12 +643,25 @@ export function Player() {
     setConnecting(true);
     setBufferError(null);
     setSourcesError(null);
+    setResumeToast(null);
     try {
+      const histId = `torrent-${media?.id ?? Date.now()}-${selectedEpisode?.id ?? ""}`;
+      currentHistoryId.current = histId;
+
+      // Check for saved progress before starting
+      const saved = history.find((h) => h.id === histId);
+      if (saved?.progressSecs && saved.progressSecs > 30 &&
+          saved.durationSecs && saved.progressSecs < saved.durationSecs * 0.9) {
+        pendingResumeAt.current = saved.progressSecs;
+        setResumeToast({ at: saved.progressSecs });
+      } else {
+        pendingResumeAt.current = 0;
+      }
+
       const info = await invoke<StreamInfo>("start_torrent", { magnet: source.magnet });
       setStreamInfo(info);
-      // History
       addToHistory({
-        id: `torrent-${media?.id ?? Date.now()}-${selectedEpisode?.id ?? ""}`,
+        id: histId,
         title: selectedEpisode
           ? `${title} S${String(selectedEpisode.season_number).padStart(2,"0")}E${String(selectedEpisode.episode_number).padStart(2,"0")}`
           : title,
@@ -649,6 +769,7 @@ export function Player() {
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
     };
+    seekFn.current = doLocalSeek;
 
     const displayTime = isSeeking ? seekValue : currentTime;
     const pct = duration > 0 ? Math.min(displayTime / duration, 1) : 0;
@@ -669,6 +790,14 @@ export function Player() {
         </div>
 
         <div className="flex-1 relative bg-black overflow-hidden">
+          {resumeToast && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-bg-card/95 border border-border rounded-xl px-4 py-2 flex items-center gap-3 shadow-xl backdrop-blur-sm">
+              <Play size={13} className="text-accent flex-shrink-0" />
+              <span className="text-white text-xs">Reanudando desde <strong>{fmtTimestamp(resumeToast.at)}</strong></span>
+              <button onClick={() => { setStartOffset(0); setCurrentTime(0); setResumeToast(null); }} className="text-text-muted hover:text-white text-xs underline">Reiniciar</button>
+              <button onClick={() => setResumeToast(null)} className="text-text-muted hover:text-white ml-1"><X size={12} /></button>
+            </div>
+          )}
           <video
             key={`local-${effectiveLocalPath}-${startOffset}-${selectedAudio}`}
             ref={videoRef}
@@ -880,6 +1009,7 @@ export function Player() {
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
     };
+    seekFn.current = doPlexSeek;
 
     const displayTime = isSeeking ? seekValue : currentTime;
     const pct = effectiveDuration > 0 ? Math.min(displayTime / effectiveDuration, 1) : 0;
@@ -900,6 +1030,14 @@ export function Player() {
         </div>
 
         <div className="flex-1 relative bg-black overflow-hidden">
+          {resumeToast && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-bg-card/95 border border-border rounded-xl px-4 py-2 flex items-center gap-3 shadow-xl backdrop-blur-sm">
+              <Play size={13} className="text-accent flex-shrink-0" />
+              <span className="text-white text-xs">Reanudando desde <strong>{fmtTimestamp(resumeToast.at)}</strong></span>
+              <button onClick={() => { setStartOffset(0); setCurrentTime(0); setResumeToast(null); }} className="text-text-muted hover:text-white text-xs underline">Reiniciar</button>
+              <button onClick={() => setResumeToast(null)} className="text-text-muted hover:text-white ml-1"><X size={12} /></button>
+            </div>
+          )}
           <video
             key={`plex-${startOffset}`}
             ref={videoRef}
@@ -1100,6 +1238,7 @@ export function Player() {
                 setCurrentTime(t);
                 setIsStreamBuffering(true); // clears on canPlay
               };
+              seekFn.current = doSeek;
 
               const fmtTime = (s: number) => {
                 if (!isFinite(s) || s < 0) return "0:00";
@@ -1113,6 +1252,13 @@ export function Player() {
 
               return (
                 <>
+                  {resumeToast && (
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-bg-card/95 border border-border rounded-xl px-4 py-2 flex items-center gap-3 shadow-xl backdrop-blur-sm">
+                      <Play size={13} className="text-accent flex-shrink-0" />
+                      <span className="text-white text-xs">Reanudando desde <strong>{fmtTimestamp(resumeToast.at)}</strong></span>
+                      <button onClick={() => setResumeToast(null)} className="text-text-muted hover:text-white ml-1"><X size={12} /></button>
+                    </div>
+                  )}
                   <video
                     key={`${streamInfo.id}-${videoFileIdx}`}
                     ref={videoRef}

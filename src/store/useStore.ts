@@ -23,6 +23,7 @@ interface AppState {
   removeFromWatchlist: (id: number) => void;
   isInWatchlist: (id: number) => boolean;
   addToHistory: (entry: HistoryEntry) => void;
+  updateHistoryProgress: (id: string, progressSecs: number, durationSecs: number) => void;
   removeFromHistory: (id: string) => void;
   clearHistory: () => void;
   setPlexDirectUrl: (url: string | null, durationSecs?: number) => void;
@@ -80,6 +81,12 @@ export const useStore = create<AppState>()(
           });
           return { history: [entry, ...filtered].slice(0, 100) };
         }),
+      updateHistoryProgress: (id, progressSecs, durationSecs) =>
+        set((state) => ({
+          history: state.history.map((h) =>
+            h.id === id ? { ...h, progressSecs, durationSecs } : h
+          ),
+        })),
       removeFromHistory: (id) =>
         set((state) => ({ history: state.history.filter((h) => h.id !== id) })),
       clearHistory: () => set({ history: [] }),

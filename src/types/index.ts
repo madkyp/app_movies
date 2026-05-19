@@ -91,6 +91,8 @@ export interface HistoryEntry {
   playedAt: number;
   path?: string;
   episode?: { season: number; episode: number; name: string };
+  progressSecs?: number;
+  durationSecs?: number;
 }
 
 export interface SubtitleResult {
