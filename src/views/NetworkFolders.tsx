@@ -135,10 +135,6 @@ export function NetworkFolders() {
   const handleAddFolder = async () => {
     const path = buildFullPath();
     if (!path) { setAddError("Introduce una ruta o URL"); return; }
-    if (isSmb && addSmbUser.trim() === "") {
-      setAddError("Introduce usuario (o deja la ruta como smb://guest@host si el NAS permite acceso anónimo)");
-      return;
-    }
     setAddError(null);
     setCheckOk(false);
     setChecking(true);
@@ -246,7 +242,7 @@ export function NetworkFolders() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Usuario SMB"
+                    placeholder="Usuario (vacío = invitado)"
                     value={addSmbUser}
                     onChange={(e) => { setAddSmbUser(e.target.value); setCheckOk(false); setAddError(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") handleAddFolder(); }}
@@ -310,8 +306,8 @@ export function NetworkFolders() {
               </button>
             </div>
             <p className="text-text-muted text-[10px] leading-relaxed">
-              Para rutas SMB se necesita <code className="bg-bg-secondary px-1 rounded">gvfs</code> instalado.
-              Las carpetas montadas en <code className="bg-bg-secondary px-1 rounded">/mnt/</code> funcionan directamente.
+              Para rutas SMB se necesita <code className="bg-bg-secondary px-1 rounded">smbclient</code> instalado (paquete <code className="bg-bg-secondary px-1 rounded">samba</code>).
+              Deja usuario vacío para acceso de invitado. Las carpetas en <code className="bg-bg-secondary px-1 rounded">/mnt/</code> funcionan directamente.
             </p>
           </div>
         )}

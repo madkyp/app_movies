@@ -77,9 +77,31 @@ export interface AppSettings {
   downloadPath: string;
   plexUrl: string;
   plexToken: string;
+  openSubtitlesApiKey: string;
 }
 
-export type ViewType = "home" | "movies" | "series" | "detail" | "player" | "settings" | "search" | "watchlist" | "plex" | "folders";
+export interface HistoryEntry {
+  id: string;
+  title: string;
+  poster: string | null;
+  media_type: "movie" | "tv" | "file";
+  tmdb_id?: number;
+  imdb_id?: string;
+  source: "torrent" | "plex" | "local";
+  playedAt: number;
+  path?: string;
+  episode?: { season: number; episode: number; name: string };
+}
+
+export interface SubtitleResult {
+  file_id: number;
+  file_name: string;
+  language: string;
+  release: string;
+  download_count: number;
+}
+
+export type ViewType = "home" | "movies" | "series" | "detail" | "player" | "settings" | "search" | "watchlist" | "plex" | "folders" | "history";
 
 export interface FolderEntry {
   name: string;

@@ -291,34 +291,93 @@ struct PlexPlayParams {
     start: Option<f64>,
 }
 
+// Probe a file or URL to detect video/audio codec names (e.g. "h264", "aac").
+// Returns empty strings on failure — callers fall back to full transcode.
+async fn probe_codecs(input: &str) -> (String, String) {
+    let probe_fut = tokio::process::Command::new(ffprobe_bin())
+        .args([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-select_streams", "v:0,a:0",
+            "-analyzeduration", "500000",
+            "-probesize", "500000",
+            input,
+        ])
+        .output();
+
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(5), probe_fut).await {
+        Ok(Ok(o)) => o,
+        _ => return (String::new(), String::new()),
+    };
+
+    if let Ok(probed) = serde_json::from_slice::<FfprobeOutput>(&output.stdout) {
+        let video_codec = probed.streams.iter()
+            .find(|s| s.codec_type.as_deref() == Some("video"))
+            .and_then(|s| s.codec_name.clone())
+            .unwrap_or_default();
+        let audio_codec = probed.streams.iter()
+            .find(|s| s.codec_type.as_deref() == Some("audio"))
+            .and_then(|s| s.codec_name.clone())
+            .unwrap_or_default();
+        return (video_codec, audio_codec);
+    }
+    (String::new(), String::new())
+}
+
+fn build_codec_args(can_copy_video: bool, can_copy_audio: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if can_copy_video {
+        args.extend(["-c:v".into(), "copy".into()]);
+    } else {
+        args.extend([
+            "-c:v".into(), "libx264".into(),
+            "-preset".into(), "ultrafast".into(),
+            "-tune".into(), "zerolatency".into(),
+            "-crf".into(), "22".into(),
+            "-g".into(), "50".into(),
+        ]);
+    }
+    if can_copy_audio {
+        args.extend(["-c:a".into(), "copy".into()]);
+    } else {
+        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
+    }
+    args
+}
+
 async fn h_play_plex(
     Query(params): Query<PlexPlayParams>,
 ) -> Response {
     let audio_idx = params.audio.unwrap_or(0);
     let start_secs = params.start.unwrap_or(0.0);
-    let audio_map = format!("0:a:{}", audio_idx);
+    let audio_map = format!("0:a:{}?", audio_idx);
     let start_str = format!("{:.3}", start_secs);
 
-    let mut args: Vec<String> = vec![
-        "-v".into(), "quiet".into(),
+    let (video_codec, audio_codec) = probe_codecs(&params.url).await;
+    let can_copy_video = video_codec == "h264";
+    let can_copy_audio = audio_codec == "aac";
+    log::warn!("[ffmpeg-plex] codec={video_codec}/{audio_codec} copy_v={can_copy_video} copy_a={can_copy_audio}");
+
+    let mut args: Vec<String> = vec!["-v".into(), "quiet".into()];
+    if !can_copy_video {
+        args.extend(["-hwaccel".into(), "auto".into()]);
+    }
+    args.extend([
         "-analyzeduration".into(), "100000".into(),
         "-probesize".into(), "500000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
-    ];
+    ]);
     if start_secs > 0.5 {
-        args.push("-ss".into());
-        args.push(start_str);
+        args.extend(["-ss".into(), start_str]);
     }
     args.extend([
         "-i".into(), params.url,
         "-map".into(), "0:v:0".into(),
         "-map".into(), audio_map,
-        "-c:v".into(), "libx264".into(),
-        "-preset".into(), "ultrafast".into(),
-        "-tune".into(), "zerolatency".into(),
-        "-crf".into(), "22".into(),
-        "-c:a".into(), "aac".into(),
-        "-b:a".into(), "192k".into(),
+    ]);
+    args.extend(build_codec_args(can_copy_video, can_copy_audio));
+    args.extend([
         "-sn".into(),
         "-f".into(), "mp4".into(),
         "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof".into(),
@@ -329,7 +388,7 @@ async fn h_play_plex(
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
@@ -338,6 +397,16 @@ async fn h_play_plex(
             .body(Body::from(format!("ffmpeg not found: {e}")))
             .unwrap(),
     };
+
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let reader = tokio::io::BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[ffmpeg-plex] {}", line);
+            }
+        });
+    }
 
     let stdout = child.stdout.take().unwrap();
     let body_stream = tokio_util::io::ReaderStream::new(stdout);
@@ -444,12 +513,20 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
     let start_secs = params.start.unwrap_or(0.0);
     let start_str = format!("{:.3}", start_secs);
 
-    let mut args: Vec<String> = vec![
-        "-v".into(), "quiet".into(),
+    let (video_codec, audio_codec) = probe_codecs(&params.path).await;
+    let can_copy_video = video_codec == "h264";
+    let can_copy_audio = audio_codec == "aac";
+    log::warn!("[ffmpeg-local] codec={video_codec}/{audio_codec} copy_v={can_copy_video} copy_a={can_copy_audio}");
+
+    let mut args: Vec<String> = vec!["-v".into(), "quiet".into()];
+    if !can_copy_video {
+        args.extend(["-hwaccel".into(), "auto".into()]);
+    }
+    args.extend([
         "-analyzeduration".into(), "10000000".into(),
         "-probesize".into(), "10000000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
-    ];
+    ]);
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
     }
@@ -457,12 +534,9 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         "-i".into(), params.path,
         "-map".into(), "0:v:0".into(),
         "-map".into(), audio_map,
-        "-c:v".into(), "libx264".into(),
-        "-preset".into(), "ultrafast".into(),
-        "-tune".into(), "zerolatency".into(),
-        "-crf".into(), "22".into(),
-        "-c:a".into(), "aac".into(),
-        "-b:a".into(), "192k".into(),
+    ]);
+    args.extend(build_codec_args(can_copy_video, can_copy_audio));
+    args.extend([
         "-sn".into(),
         "-f".into(), "mp4".into(),
         "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof".into(),
@@ -473,7 +547,7 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
@@ -482,6 +556,16 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
             .body(Body::from(format!("ffmpeg error: {e}")))
             .unwrap(),
     };
+
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let reader = tokio::io::BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[ffmpeg-local] {}", line);
+            }
+        });
+    }
 
     let body_stream = tokio_util::io::ReaderStream::new(child.stdout.take().unwrap());
     Response::builder()

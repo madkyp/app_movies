@@ -1,4 +1,4 @@
-import { Home, Film, Tv, Bookmark, Settings, Server, FolderOpen } from "lucide-react";
+import { Home, Film, Tv, Bookmark, Settings, Server, FolderOpen, History } from "lucide-react";
 import logo from "../../assets/logo.png";
 import { cn } from "../../lib/utils";
 import type { ViewType } from "../../types";
@@ -15,6 +15,7 @@ const nav = [
   { id: "watchlist" as ViewType, icon: Bookmark, label: "Mi Lista" },
   { id: "plex" as ViewType, icon: Server, label: "Plex" },
   { id: "folders" as ViewType, icon: FolderOpen, label: "Mis Carpetas" },
+  { id: "history" as ViewType, icon: History, label: "Historial" },
 ];
 
 export function Sidebar({ current, onNavigate }: Props) {

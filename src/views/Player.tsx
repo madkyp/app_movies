@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Server, FolderOpen } from "lucide-react";
+import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Server, FolderOpen, Subtitles } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useSeasonEpisodes } from "../hooks/useTmdb";
 import { cn, TMDB_IMAGE_BASE } from "../lib/utils";
-import type { TorrentSource, Episode } from "../types";
+import type { TorrentSource, Episode, SubtitleResult } from "../types";
+
+function srtToVtt(srt: string): string {
+  return "WEBVTT\n\n" + srt
+    .replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+    .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")
+    .replace(/^\d+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 interface StreamInfo {
   id: number;
@@ -86,9 +95,94 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1_048_576).toFixed(0)} MB`;
 }
 
+interface SubtitlePanelProps {
+  show: boolean;
+  lang: string;
+  results: SubtitleResult[];
+  loading: boolean;
+  downloading: boolean;
+  error: string | null;
+  extSubUrl: string | null;
+  onClose: () => void;
+  onLangChange: (l: string) => void;
+  onSearch: () => void;
+  onSelect: (fileId: number) => void;
+  onClear: () => void;
+}
+
+function SubtitlePanel({ show, lang, results, loading, downloading, error, extSubUrl, onClose, onLangChange, onSearch, onSelect, onClear }: SubtitlePanelProps) {
+  if (!show) return null;
+  return (
+    <div className="absolute bottom-20 right-3 w-80 bg-bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-white text-xs font-semibold flex items-center gap-1.5">
+          <FileText size={12} /> Subtítulos externos
+        </span>
+        <button onClick={onClose} className="text-text-muted hover:text-white transition-colors"><X size={13} /></button>
+      </div>
+      <div className="p-3 space-y-2">
+        {extSubUrl && (
+          <div className="flex items-center justify-between px-2 py-1 rounded bg-green-500/10 border border-green-500/30">
+            <span className="text-green-400 text-xs">Subtítulo cargado ✓</span>
+            <button onClick={onClear} className="text-text-muted hover:text-red-400 text-xs transition-colors">Quitar</button>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <select
+            value={lang}
+            onChange={(e) => onLangChange(e.target.value)}
+            className="flex-1 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent cursor-pointer"
+          >
+            <option value="es">Español</option>
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+          </select>
+          <button
+            onClick={onSearch}
+            disabled={loading || downloading}
+            className="btn-primary text-xs py-1 px-3 disabled:opacity-50"
+          >
+            {loading ? <Loader2 size={11} className="animate-spin" /> : "Buscar"}
+          </button>
+        </div>
+
+        {downloading && (
+          <div className="flex items-center gap-2 text-xs text-text-secondary px-1">
+            <Loader2 size={11} className="animate-spin text-accent" /> Descargando subtítulo…
+          </div>
+        )}
+        {error && <p className="text-red-400 text-xs px-1">{error}</p>}
+
+        {results.length > 0 && (
+          <div className="space-y-0.5 max-h-52 overflow-y-auto">
+            {results.map((r) => (
+              <button
+                key={r.file_id}
+                disabled={downloading}
+                onClick={() => onSelect(r.file_id)}
+                className="w-full text-left px-2 py-2 rounded text-xs hover:bg-bg-hover transition-colors disabled:opacity-50 group"
+              >
+                <p className="text-white truncate">{r.release || r.file_name}</p>
+                <p className="text-text-muted text-[10px] mt-0.5">{r.language.toUpperCase()} · {r.download_count.toLocaleString()} descargas</p>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loading && !error && results.length === 0 && (
+          <p className="text-text-muted text-xs text-center py-3">Elige idioma y pulsa Buscar</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
-  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl } = useStore();
+  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, settings } = useStore();
 
   // SMB: download to local cache before playing
   const [effectiveLocalPath, setEffectiveLocalPath] = useState<string | null>(null);
@@ -125,6 +219,15 @@ export function Player() {
   const [selectedSub, setSelectedSub] = useState(-1); // -1 = off
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [showSubMenu, setShowSubMenu] = useState(false);
+
+  // External subtitles (OpenSubtitles)
+  const [extSubUrl, setExtSubUrl] = useState<string | null>(null);
+  const [showSubPanel, setShowSubPanel] = useState(false);
+  const [subLang, setSubLang] = useState("es");
+  const [subResults, setSubResults] = useState<SubtitleResult[]>([]);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subError, setSubError] = useState<string | null>(null);
+  const [subDownloading, setSubDownloading] = useState(false);
 
   // Playback controls
   const [currentTime, setCurrentTime] = useState(0);
@@ -293,6 +396,15 @@ export function Player() {
       setIsBuffering(true);
       setPlexVideoError(false);
       if (plexDirectDuration > 0) setDuration(plexDirectDuration);
+      addToHistory({
+        id: `plex-${media?.id ?? plexDirectUrl}`,
+        title,
+        poster: media?.poster_path ?? null,
+        media_type: isSeries ? "tv" : "movie",
+        tmdb_id: media?.id,
+        source: "plex",
+        playedAt: Date.now(),
+      });
     }
   }, [plexDirectUrl, plexDirectDuration]);
 
@@ -307,6 +419,17 @@ export function Player() {
     setStartOffset(0);
     setLocalVideoError(false);
     setSmbError(null);
+
+    // History for local files
+    addToHistory({
+      id: `local-${localFileUrl}`,
+      title: localFileTitle || localFileUrl.split(/[\\/]/).pop() || localFileUrl,
+      poster: null,
+      media_type: "file",
+      source: "local",
+      path: localFileUrl,
+      playedAt: Date.now(),
+    });
 
     if (localFileUrl.startsWith("smb://")) {
       setSmbLoading(true);
@@ -339,6 +462,56 @@ export function Player() {
     };
   }, [streamInfo]);
 
+  const handleSubSearch = useCallback(async () => {
+    setSubResults([]);
+    setSubError(null);
+    setSubLoading(true);
+    const apiKey = settings.openSubtitlesApiKey ?? "";
+    try {
+      const imdbId: string | undefined = (media as any)?.imdb_id ?? undefined;
+      const queryFallback = localFileUrl
+        ? (localFileTitle || localFileUrl.split(/[\\/]/).pop() || "").replace(/\.[^.]+$/, "")
+        : (media?.title || media?.name || undefined);
+      const results = await invoke<SubtitleResult[]>("search_subtitles", {
+        imdbId: imdbId ?? null,
+        query: imdbId ? null : (queryFallback ?? null),
+        language: subLang,
+        season: selectedEpisode?.season_number ?? null,
+        episodeNum: selectedEpisode?.episode_number ?? null,
+        apiKey,
+      });
+      setSubResults(results);
+      if (results.length === 0) setSubError("No se encontraron subtítulos para estos parámetros.");
+    } catch (e) {
+      const msg = String(e);
+      if (msg === "opensubtitles_no_key") {
+        setSubError("Configura tu API key de OpenSubtitles en Ajustes.");
+      } else {
+        setSubError(msg);
+      }
+    } finally {
+      setSubLoading(false);
+    }
+  }, [settings.openSubtitlesApiKey, media, localFileUrl, localFileTitle, subLang, selectedEpisode]);
+
+  const handleSubtitleSelect = useCallback(async (fileId: number) => {
+    setSubDownloading(true);
+    setSubError(null);
+    const apiKey = settings.openSubtitlesApiKey ?? "";
+    try {
+      const srtContent = await invoke<string>("download_subtitle", { fileId, apiKey });
+      const vtt = srtToVtt(srtContent);
+      const blob = new Blob([vtt], { type: "text/vtt" });
+      if (extSubUrl) URL.revokeObjectURL(extSubUrl);
+      setExtSubUrl(URL.createObjectURL(blob));
+      setShowSubPanel(false);
+    } catch (e) {
+      setSubError(String(e));
+    } finally {
+      setSubDownloading(false);
+    }
+  }, [settings.openSubtitlesApiKey, extSubUrl]);
+
   const handlePlay = useCallback(async (source: TorrentSource) => {
     if (!source.magnet) return;
     if (source.seeds === 0) {
@@ -354,6 +527,20 @@ export function Player() {
     try {
       const info = await invoke<StreamInfo>("start_torrent", { magnet: source.magnet });
       setStreamInfo(info);
+      // History
+      addToHistory({
+        id: `torrent-${media?.id ?? Date.now()}-${selectedEpisode?.id ?? ""}`,
+        title: selectedEpisode
+          ? `${title} S${String(selectedEpisode.season_number).padStart(2,"0")}E${String(selectedEpisode.episode_number).padStart(2,"0")}`
+          : title,
+        poster: media?.poster_path ?? null,
+        media_type: isSeries ? "tv" : "movie",
+        tmdb_id: media?.id,
+        imdb_id: (media as any)?.imdb_id ?? undefined,
+        source: "torrent",
+        playedAt: Date.now(),
+        episode: selectedEpisode ? { season: selectedEpisode.season_number, episode: selectedEpisode.episode_number, name: selectedEpisode.name } : undefined,
+      });
     } catch (e) {
       setSourcesError(`Error iniciando torrent: ${e}`);
     } finally {
@@ -488,7 +675,9 @@ export function Player() {
               setVolume(videoRef.current.volume);
               setIsMuted(videoRef.current.muted);
             }}
-          />
+          >
+            {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
+          </video>
 
           {(isBuffering || localVideoError) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">
@@ -604,6 +793,15 @@ export function Player() {
               )}
 
               <button
+                className={cn("flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors",
+                  extSubUrl ? "text-green-400" : "text-white/70 hover:text-white")}
+                onClick={() => setShowSubPanel((v) => !v)}
+                title="Subtítulos externos"
+              >
+                <Subtitles size={12} /> CC
+              </button>
+
+              <button
                 className="text-white/70 hover:text-white transition-colors p-1"
                 onClick={() => {
                   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -614,6 +812,17 @@ export function Player() {
               </button>
             </div>
           </div>
+
+          <SubtitlePanel
+            show={showSubPanel} lang={subLang} results={subResults}
+            loading={subLoading} downloading={subDownloading} error={subError}
+            extSubUrl={extSubUrl}
+            onClose={() => setShowSubPanel(false)}
+            onLangChange={setSubLang}
+            onSearch={handleSubSearch}
+            onSelect={handleSubtitleSelect}
+            onClear={() => { if (extSubUrl) URL.revokeObjectURL(extSubUrl); setExtSubUrl(null); }}
+          />
         </div>
       </div>
     );
@@ -697,7 +906,9 @@ export function Player() {
               setVolume(videoRef.current.volume);
               setIsMuted(videoRef.current.muted);
             }}
-          />
+          >
+            {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
+          </video>
           {(isBuffering || plexVideoError) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">
               {plexVideoError ? (
@@ -786,6 +997,14 @@ export function Player() {
                 }}
               />
               <button
+                className={cn("flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors",
+                  extSubUrl ? "text-green-400" : "text-white/70 hover:text-white")}
+                onClick={() => setShowSubPanel((v) => !v)}
+                title="Subtítulos externos"
+              >
+                <Subtitles size={12} /> CC
+              </button>
+              <button
                 className="text-white/70 hover:text-white transition-colors p-1"
                 onClick={() => {
                   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -796,6 +1015,17 @@ export function Player() {
               </button>
             </div>
           </div>
+
+          <SubtitlePanel
+            show={showSubPanel} lang={subLang} results={subResults}
+            loading={subLoading} downloading={subDownloading} error={subError}
+            extSubUrl={extSubUrl}
+            onClose={() => setShowSubPanel(false)}
+            onLangChange={setSubLang}
+            onSearch={handleSubSearch}
+            onSelect={handleSubtitleSelect}
+            onClear={() => { if (extSubUrl) URL.revokeObjectURL(extSubUrl); setExtSubUrl(null); }}
+          />
         </div>
       </div>
     );
@@ -1057,6 +1287,16 @@ export function Player() {
                         </div>
                       )}
 
+                      {/* External subtitles */}
+                      <button
+                        className={cn("flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors",
+                          extSubUrl ? "text-green-400" : "text-white/70 hover:text-white")}
+                        onClick={() => setShowSubPanel((v) => !v)}
+                        title="Subtítulos externos"
+                      >
+                        <Subtitles size={12} /> CC ext
+                      </button>
+
                       {/* Fullscreen */}
                       <button
                         className="text-white/70 hover:text-white transition-colors p-1"
@@ -1069,6 +1309,17 @@ export function Player() {
                       </button>
                     </div>
                   </div>
+
+                  <SubtitlePanel
+                    show={showSubPanel} lang={subLang} results={subResults}
+                    loading={subLoading} downloading={subDownloading} error={subError}
+                    extSubUrl={extSubUrl}
+                    onClose={() => setShowSubPanel(false)}
+                    onLangChange={setSubLang}
+                    onSearch={handleSubSearch}
+                    onSelect={handleSubtitleSelect}
+                    onClear={() => { if (extSubUrl) URL.revokeObjectURL(extSubUrl); setExtSubUrl(null); }}
+                  />
                 </>
               );
             })()

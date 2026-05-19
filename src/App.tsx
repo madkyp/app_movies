@@ -11,6 +11,7 @@ import { Settings } from "./views/Settings";
 import { Watchlist } from "./views/Watchlist";
 import { PlexBrowser } from "./views/PlexBrowser";
 import { NetworkFolders } from "./views/NetworkFolders";
+import { History } from "./views/History";
 
 function MainContent() {
   const view = useStore((s) => s.view);
@@ -36,6 +37,8 @@ function MainContent() {
       return <PlexBrowser />;
     case "folders":
       return <NetworkFolders />;
+    case "history":
+      return <History />;
     default:
       return <Home />;
   }

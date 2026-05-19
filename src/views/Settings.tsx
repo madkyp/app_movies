@@ -7,6 +7,7 @@ export function Settings() {
   const [tmdbKey, setTmdbKey] = useState(settings.tmdbApiKey);
   const [plexUrl, setPlexUrl] = useState(settings.plexUrl);
   const [plexToken, setPlexToken] = useState(settings.plexToken);
+  const [osKey, setOsKey] = useState(settings.openSubtitlesApiKey ?? "");
   const [saved, setSaved] = useState<string | null>(null);
 
   function saveField(field: string, updates: Parameters<typeof updateSettings>[0]) {
@@ -85,6 +86,31 @@ export function Settings() {
             className="btn-primary text-xs py-2"
           >
             <Save size={13} /> {saved === "plex" ? "¡Guardado!" : "Guardar"}
+          </button>
+        </div>
+
+        {/* OpenSubtitles */}
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Key size={15} className="text-green-400" />
+            <h3 className="text-white font-semibold text-sm">OpenSubtitles API Key</h3>
+          </div>
+          <p className="text-text-muted text-xs mb-3">
+            Necesaria para buscar subtítulos automáticos. Regístrate gratis en{" "}
+            <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noreferrer"
+               className="text-accent hover:underline inline-flex items-center gap-0.5">
+              opensubtitles.com/en/consumers <ExternalLink size={10} />
+            </a>
+          </p>
+          <input
+            type="password"
+            value={osKey}
+            onChange={(e) => setOsKey(e.target.value)}
+            placeholder="Tu API key de OpenSubtitles"
+            className="input-search mb-3 font-mono text-xs"
+          />
+          <button onClick={() => saveField("os", { openSubtitlesApiKey: osKey })} className="btn-primary text-xs py-2">
+            <Save size={13} /> {saved === "os" ? "¡Guardado!" : "Guardar"}
           </button>
         </div>
 

@@ -1728,13 +1728,18 @@ fn parse_smb_url(url: &str) -> (String, String, String, String, String) {
 #[cfg(not(windows))]
 fn smb_auth_args(user: &str, pass: &str) -> Vec<String> {
     let mut args = vec![
-        "--option=client min protocol=SMB2".to_string(),
+        // Allow SMB1 (NT1) for old NAS devices — guest access is often on SMB1
+        "--option=client min protocol=NT1".to_string(),
+        // Some servers require NTLMv2 to be disabled for guest
+        "--option=client NTLMv2 auth = no".to_string(),
     ];
     if user.is_empty() {
-        args.push("-N".to_string()); // no credentials, no interactive prompt
+        // guest%  = user "guest" with empty password; more compatible than bare -N
+        // because many servers map explicit guest login to anonymous even when -N is rejected
+        args.push("-U".to_string());
+        args.push("guest%".to_string());
     } else {
         args.push("-U".to_string());
-        // smbclient -U format: "user%pass"
         args.push(format!("{}%{}", user, pass));
     }
     args
@@ -1769,8 +1774,11 @@ async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> 
         if stderr.contains("LOGON_FAILURE") || stderr.contains("WRONG_PASSWORD") {
             return Err("Credenciales incorrectas. Verifica usuario y contraseña.".to_string());
         }
-        if stderr.contains("ACCOUNT_DISABLED") {
-            return Err("El acceso de invitado está desactivado. Introduce usuario y contraseña.".to_string());
+        if stderr.contains("ACCOUNT_DISABLED") || stderr.contains("GUEST_ACCESS_DENIED") {
+            return Err("El servidor no permite acceso de invitado. Introduce usuario y contraseña.".to_string());
+        }
+        if stderr.contains("ACCESS_DENIED") || stderr.contains("NT_STATUS_ACCESS_DENIED") {
+            return Err("Acceso denegado. El servidor requiere usuario y contraseña.".to_string());
         }
         if stderr.contains("CONNECTION_REFUSED") || stderr.contains("NETWORK_UNREACHABLE") || stderr.contains("failed") {
             return Err(format!("No se puede conectar a {host}. Verifica la IP y que SMB esté activo."));
@@ -1779,6 +1787,9 @@ async fn smb_list_shares(host: &str, user: &str, pass: &str, base_url: &str) -> 
         let useful: Vec<&str> = stderr.lines()
             .filter(|l| !l.contains("smb.conf") && !l.trim().is_empty())
             .collect();
+        if useful.is_empty() {
+            return Err(format!("No se puede acceder a {host}. Comprueba que SMB está activo y la IP es correcta."));
+        }
         return Err(format!("Error SMB: {}", useful.join(" | ")));
     }
 
@@ -2152,4 +2163,119 @@ async fn write_folders(folders: &[SavedFolder]) -> Result<(), String> {
     }
     let data = serde_json::to_string_pretty(folders).map_err(|e| e.to_string())?;
     tokio::fs::write(&p, data).await.map_err(|e| e.to_string())
+}
+
+// ── OpenSubtitles ─────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct SubtitleResult {
+    pub file_id: u64,
+    pub file_name: String,
+    pub language: String,
+    pub release: String,
+    pub download_count: u64,
+}
+
+#[tauri::command]
+pub async fn search_subtitles(
+    imdb_id: Option<String>,
+    query: Option<String>,
+    language: String,
+    season: Option<u32>,
+    episode_num: Option<u32>,
+    api_key: String,
+) -> Result<Vec<SubtitleResult>, String> {
+    if api_key.trim().is_empty() {
+        return Err("opensubtitles_no_key".to_string());
+    }
+    let client = reqwest::Client::new();
+    let mut url = String::from("https://api.opensubtitles.com/api/v1/subtitles?order_by=download_count&order_direction=desc");
+    url.push_str(&format!("&languages={}", urlencoding::encode(&language)));
+    if let Some(id) = &imdb_id {
+        let clean = id.trim_start_matches("tt");
+        url.push_str(&format!("&imdb_id={}", clean));
+    }
+    if let Some(q) = &query {
+        url.push_str(&format!("&query={}", urlencoding::encode(q)));
+    }
+    if let Some(s) = season {
+        url.push_str(&format!("&season_number={}", s));
+    }
+    if let Some(e) = episode_num {
+        url.push_str(&format!("&episode_number={}", e));
+    }
+
+    let res = client
+        .get(&url)
+        .header("Api-Key", &api_key)
+        .header("User-Agent", "TheFoundry StreamDeck v1.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        let status = res.status().as_u16();
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("OpenSubtitles error {}: {}", status, body.chars().take(200).collect::<String>()));
+    }
+
+    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let mut results: Vec<SubtitleResult> = vec![];
+    if let Some(data) = json["data"].as_array() {
+        for item in data.iter().take(15) {
+            let attrs = &item["attributes"];
+            let files = match attrs["files"].as_array() { Some(f) => f, None => continue };
+            for file in files.iter().take(1) {
+                let file_id = match file["file_id"].as_u64() { Some(id) if id > 0 => id, _ => continue };
+                results.push(SubtitleResult {
+                    file_id,
+                    file_name: file["file_name"].as_str().unwrap_or("").to_string(),
+                    language: attrs["language"].as_str().unwrap_or("").to_string(),
+                    release: attrs["release"].as_str().unwrap_or(
+                        file["file_name"].as_str().unwrap_or("Sin nombre")
+                    ).to_string(),
+                    download_count: attrs["download_count"].as_u64().unwrap_or(0),
+                });
+            }
+        }
+    }
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn download_subtitle(file_id: u64, api_key: String) -> Result<String, String> {
+    if api_key.trim().is_empty() {
+        return Err("opensubtitles_no_key".to_string());
+    }
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({ "file_id": file_id });
+    let res = client
+        .post("https://api.opensubtitles.com/api/v1/download")
+        .header("Api-Key", &api_key)
+        .header("User-Agent", "TheFoundry StreamDeck v1.0")
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        let status = res.status().as_u16();
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("Error descargando subtítulo ({}): {}", status, text.chars().take(200).collect::<String>()));
+    }
+
+    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let link = json["link"].as_str().ok_or("Sin enlace de descarga en la respuesta")?;
+
+    let content = client
+        .get(link)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(content)
 }

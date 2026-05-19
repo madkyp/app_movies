@@ -57,6 +57,8 @@ pub fn run() {
             commands::remove_folder,
             commands::fetch_smb_to_cache,
             commands::get_youtube_stream_url,
+            commands::search_subtitles,
+            commands::download_subtitle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Media, MediaDetail, AppSettings, ViewType } from "../types";
+import type { Media, MediaDetail, AppSettings, ViewType, HistoryEntry } from "../types";
 
 interface AppState {
   view: ViewType;
@@ -8,10 +8,11 @@ interface AppState {
   searchQuery: string;
   settings: AppSettings;
   watchlist: Media[];
+  history: HistoryEntry[];
   continueWatching: { media: Media; progress: number; timestamp: number }[];
   plexDirectUrl: string | null;
   plexDirectDuration: number;
-  localFileUrl: string | null;       // filesystem/smb:// path of file being played from network folders
+  localFileUrl: string | null;
   localFileTitle: string;
 
   setView: (view: ViewType) => void;
@@ -21,6 +22,9 @@ interface AppState {
   addToWatchlist: (m: Media) => void;
   removeFromWatchlist: (id: number) => void;
   isInWatchlist: (id: number) => boolean;
+  addToHistory: (entry: HistoryEntry) => void;
+  removeFromHistory: (id: string) => void;
+  clearHistory: () => void;
   setPlexDirectUrl: (url: string | null, durationSecs?: number) => void;
   setLocalFileUrl: (url: string | null, title?: string) => void;
 }
@@ -36,8 +40,10 @@ export const useStore = create<AppState>()(
         downloadPath: "",
         plexUrl: "",
         plexToken: "",
+        openSubtitlesApiKey: "",
       },
       watchlist: [],
+      history: [],
       continueWatching: [],
       plexDirectUrl: null,
       plexDirectDuration: 0,
@@ -58,9 +64,31 @@ export const useStore = create<AppState>()(
       removeFromWatchlist: (id) =>
         set((state) => ({ watchlist: state.watchlist.filter((x) => x.id !== id) })),
       isInWatchlist: (id) => get().watchlist.some((x) => x.id === id),
+      addToHistory: (entry) =>
+        set((state) => {
+          // Dedup: same tmdb_id or same local path → update timestamp
+          const filtered = state.history.filter((h) => {
+            if (entry.tmdb_id && h.tmdb_id === entry.tmdb_id) {
+              // For series, also match episode
+              if (entry.episode && h.episode) {
+                return !(h.episode.season === entry.episode.season && h.episode.episode === entry.episode.episode);
+              }
+              return entry.media_type !== "movie";
+            }
+            if (entry.path && h.path === entry.path) return false;
+            return true;
+          });
+          return { history: [entry, ...filtered].slice(0, 100) };
+        }),
+      removeFromHistory: (id) =>
+        set((state) => ({ history: state.history.filter((h) => h.id !== id) })),
+      clearHistory: () => set({ history: [] }),
       setPlexDirectUrl: (url, durationSecs = 0) => set({ plexDirectUrl: url, plexDirectDuration: durationSecs }),
       setLocalFileUrl: (url, title = "") => set({ localFileUrl: url, localFileTitle: title }),
     }),
-    { name: "streamdeck-store", partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist }) }
+    {
+      name: "streamdeck-store",
+      partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist, history: s.history }),
+    }
   )
 );
