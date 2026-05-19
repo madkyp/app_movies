@@ -141,7 +141,7 @@ function SubtitlePanel({ show, lang, results, loading, downloading, error, extSu
           <select
             value={lang}
             onChange={(e) => onLangChange(e.target.value)}
-            className="flex-1 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent cursor-pointer"
+            className="flex-1 bg-white border border-border rounded-lg px-2 py-1.5 text-xs text-black focus:outline-none focus:border-accent cursor-pointer"
           >
             <option value="es">Español</option>
             <option value="en">English</option>
@@ -261,7 +261,8 @@ export function Player() {
   const [seekValue, setSeekValue] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
-  const [startOffset, setStartOffset] = useState(0); // ffmpeg ?start= offset in seconds
+  const [startOffset, setStartOffset] = useState(0); // ffmpeg ?start= offset for local/Plex
+  const [torrentStartOffset, setTorrentStartOffset] = useState(0); // ffmpeg ?start= for torrent seek
 
   // Series-specific state
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -283,6 +284,9 @@ export function Player() {
   const currentHistoryId = useRef<string | null>(null);
   const pendingResumeAt = useRef(0); // for torrent: seek target after tracksReady
   const seekFn = useRef<((t: number) => void) | null>(null);
+  const isBufferingRef = useRef(false); // for stable access in video onError handlers
+  const plexRetries = useRef(0);        // retry count when Plex seek errors
+  const localRetries = useRef(0);       // retry count when local file seek errors
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
@@ -353,6 +357,7 @@ export function Player() {
     setIsSeeking(false);
     setSeekValue(0);
     setStartOffset(0);
+    setTorrentStartOffset(0);
     bufferStart.current = Date.now();
 
     const torrentId = streamInfo.id;
@@ -563,16 +568,15 @@ export function Player() {
     return () => clearInterval(id);
   }, [updateHistoryProgress]);
 
-  // ── After torrent tracksReady: apply pending resume seek ────────────────────
+  // ── After torrent tracksReady: apply pending resume by restarting ffmpeg at offset ────
   useEffect(() => {
     if (!tracksReady || !streamInfo) return;
     if (pendingResumeAt.current > 0) {
       const target = pendingResumeAt.current;
       pendingResumeAt.current = 0;
-      setTimeout(() => {
-        const v = videoRef.current;
-        if (v) { v.currentTime = target; setCurrentTime(target); }
-      }, 800);
+      // Use HTTP-seek approach: remount video with ?start=T so librqbit
+      // prioritizes the pieces at that position instead of native currentTime seek.
+      setTorrentStartOffset(Math.floor(target));
     }
   }, [tracksReady, streamInfo?.id]);
 
@@ -580,6 +584,7 @@ export function Player() {
   currentTimeRef.current = currentTime;
   durationRef.current = duration;
   startOffsetRef.current = startOffset;
+  isBufferingRef.current = isBuffering;
 
   const handleSubSearch = useCallback(async () => {
     setSubResults([]);
@@ -765,6 +770,7 @@ export function Player() {
           }
         }
       }
+      localRetries.current = 0;
       setIsBuffering(true);
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
@@ -809,8 +815,22 @@ export function Player() {
             onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
             onPause={() => setIsPlaying(false)}
             onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => setIsBuffering(false)}
-            onError={() => { setIsBuffering(false); setLocalVideoError(true); }}
+            onCanPlay={() => { localRetries.current = 0; setIsBuffering(false); }}
+            onError={() => {
+              if (isBufferingRef.current && localRetries.current < 3) {
+                localRetries.current++;
+                setTimeout(() => {
+                  const v = videoRef.current;
+                  if (!v) return;
+                  v.load();
+                  v.play().catch(() => {});
+                }, 1500);
+              } else {
+                localRetries.current = 0;
+                setIsBuffering(false);
+                setLocalVideoError(true);
+              }
+            }}
             onVolumeChange={() => {
               if (!videoRef.current) return;
               setVolume(videoRef.current.volume);
@@ -837,7 +857,9 @@ export function Player() {
               ) : (
                 <>
                   <Loader2 size={48} className="animate-spin text-accent" />
-                  <p className="text-white/70 text-sm">Iniciando reproducción…</p>
+                  <p className="text-white/70 text-sm">
+                    {localRetries.current > 0 ? `Reconectando… (${localRetries.current}/3)` : "Iniciando reproducción…"}
+                  </p>
                 </>
               )}
             </div>
@@ -1004,7 +1026,8 @@ export function Player() {
           }
         }
       }
-      // Not buffered → restart ffmpeg from new position
+      // Not buffered → restart ffmpeg from new position; reset retry counter
+      plexRetries.current = 0;
       setIsBuffering(true);
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
@@ -1049,8 +1072,23 @@ export function Player() {
             onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
             onPause={() => setIsPlaying(false)}
             onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => setIsBuffering(false)}
-            onError={() => { setIsBuffering(false); setPlexVideoError(true); }}
+            onCanPlay={() => { plexRetries.current = 0; setIsBuffering(false); }}
+            onError={() => {
+              // If we're buffering (mid-seek), retry up to 3× before showing error
+              if (isBufferingRef.current && plexRetries.current < 3) {
+                plexRetries.current++;
+                setTimeout(() => {
+                  const v = videoRef.current;
+                  if (!v) return;
+                  v.load();
+                  v.play().catch(() => {});
+                }, 1500);
+              } else {
+                plexRetries.current = 0;
+                setIsBuffering(false);
+                setPlexVideoError(true);
+              }
+            }}
             onVolumeChange={() => {
               if (!videoRef.current) return;
               setVolume(videoRef.current.volume);
@@ -1076,7 +1114,9 @@ export function Player() {
               ) : (
                 <>
                   <Loader2 size={48} className="animate-spin text-orange-400" />
-                  <p className="text-white/70 text-sm">Iniciando transcodificación…</p>
+                  <p className="text-white/70 text-sm">
+                    {plexRetries.current > 0 ? `Reconectando… (${plexRetries.current}/3)` : "Iniciando transcodificación…"}
+                  </p>
                 </>
               )}
             </div>
@@ -1221,7 +1261,11 @@ export function Player() {
               // Use raw stream URL with correct MIME type — h_stream has Content-Length + Range
               // support which WebKit/GStreamer needs to buffer and seek correctly.
               const rawUrl  = streamInfo.stream_url.replace(/\/\d+$/, `/${videoFileIdx}`);
-              const playUrl = `${serverBase}/play/${streamInfo.id}/${videoFileIdx}?audio=${selectedAudio}`;
+              const playUrl = [
+                `${serverBase}/play/${streamInfo.id}/${videoFileIdx}`,
+                `?audio=${selectedAudio}`,
+                torrentStartOffset > 0 ? `&start=${torrentStartOffset}` : "",
+              ].join("");
               const subUrl  = (selectedSub >= 0 && tracks?.subtitles[selectedSub]?.is_text)
                 ? `${serverBase}/subtitle/${streamInfo.id}/${videoFileIdx}/${selectedSub}`
                 : null;
@@ -1233,10 +1277,23 @@ export function Player() {
                 const t = Math.max(0, duration > 0 ? Math.min(target, duration) : target);
                 const videoEl = videoRef.current;
                 if (!videoEl) return;
-                // Native seek: browser sends Range request to h_stream, which handles it
-                videoEl.currentTime = t;
+                // Try native seek within already-buffered range first (cheap)
+                const relT = t - torrentStartOffset;
+                if (relT >= 0) {
+                  const buf = videoEl.buffered;
+                  for (let i = 0; i < buf.length; i++) {
+                    if (relT >= buf.start(i) && relT <= buf.end(i) + 2) {
+                      videoEl.currentTime = relT;
+                      setCurrentTime(t);
+                      return;
+                    }
+                  }
+                }
+                // Outside buffer: restart ffmpeg with HTTP seek so librqbit
+                // prioritizes pieces at the target position.
+                setTorrentStartOffset(Math.floor(t));
                 setCurrentTime(t);
-                setIsStreamBuffering(true); // clears on canPlay
+                setIsStreamBuffering(true);
               };
               seekFn.current = doSeek;
 
@@ -1260,7 +1317,7 @@ export function Player() {
                     </div>
                   )}
                   <video
-                    key={`${streamInfo.id}-${videoFileIdx}`}
+                    key={`${streamInfo.id}-${videoFileIdx}-${torrentStartOffset}`}
                     ref={videoRef}
                     src={playUrl}
                     autoPlay
@@ -1270,7 +1327,7 @@ export function Player() {
                       if (!v) return;
                       v.paused ? v.play() : v.pause();
                     }}
-                    onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
+                    onTimeUpdate={() => setCurrentTime(torrentStartOffset + (videoRef.current?.currentTime ?? 0))}
                     onPlay={() => { setIsPlaying(true); setIsStreamBuffering(false); }}
                     onPause={() => setIsPlaying(false)}
                     onWaiting={() => setIsStreamBuffering(true)}

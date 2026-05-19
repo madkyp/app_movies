@@ -196,32 +196,51 @@ async fn h_play(
     let start_secs = params.start.unwrap_or(0.0);
     let audio_map_opt = format!("0:a:{}?", audio_idx);
     let start_str = format!("{:.3}", start_secs);
-
-    // Open librqbit stream directly — piped to ffmpeg stdin (pipe:0).
-    // This avoids HTTP Range seeks which would block waiting for undownloaded pieces.
     let torrent_id = librqbit::api::TorrentIdOrHash::Id(id);
-    let rqbit_stream = match state.api.api_stream(torrent_id, file_id) {
-        Ok(s) => s,
-        Err(e) => return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!("stream error: {e}")))
-            .unwrap(),
+
+    // For initial play (start=0): pipe librqbit stream to ffmpeg stdin — starts
+    // the moment 2 MB are downloaded without blocking on random pieces.
+    //
+    // For seeks (start>0): use the librqbit HTTP stream URL with input seeking
+    // so ffmpeg sends a Range request and librqbit prioritises pieces at that position.
+    let use_http_seek = start_secs > 0.5;
+    let stream_http_url = format!("http://127.0.0.1:{}/stream/{}/{}", state.port, id, file_id);
+
+    // Open pipe stream only when we need it (initial play mode).
+    let maybe_pipe = if !use_http_seek {
+        match state.api.api_stream(torrent_id, file_id) {
+            Ok(s) => Some(s),
+            Err(e) => return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(format!("stream error: {e}")))
+                .unwrap(),
+        }
+    } else {
+        None
     };
 
-    // With pipe:0 input, ffmpeg reads sequentially and cannot seek back.
-    // analyzeduration/probesize cover the container header in the first 500KB.
-    // -ss after pipe input does a slow seek (reads forward until target timestamp).
-    let mut args: Vec<String> = vec![
-        "-v".into(), "error".into(),
-        "-analyzeduration".into(), "1000000".into(),
-        "-probesize".into(), "500000".into(),
-        "-fflags".into(), "+genpts".into(),
-        "-i".into(), "pipe:0".into(),
-    ];
-    if start_secs > 0.5 {
-        args.push("-ss".into());
-        args.push(start_str);
+    let mut args: Vec<String> = vec!["-v".into(), "error".into()];
+
+    if use_http_seek {
+        // Input seeking via HTTP: ffmpeg sends Range request to librqbit,
+        // which downloads the missing pieces on demand and then streams them.
+        args.extend([
+            "-analyzeduration".into(), "2000000".into(),
+            "-probesize".into(), "5000000".into(),
+            "-fflags".into(), "+genpts+discardcorrupt".into(),
+            "-ss".into(), start_str,
+            "-i".into(), stream_http_url,
+        ]);
+    } else {
+        // Sequential pipe — no seeking, no blocking, fast start.
+        args.extend([
+            "-analyzeduration".into(), "1000000".into(),
+            "-probesize".into(), "500000".into(),
+            "-fflags".into(), "+genpts".into(),
+            "-i".into(), "pipe:0".into(),
+        ]);
     }
+
     args.extend([
         "-map".into(), "0:v:0".into(),
         "-map".into(), audio_map_opt,
@@ -232,6 +251,7 @@ async fn h_play(
         "-g".into(), "50".into(),
         "-c:a".into(), "aac".into(),
         "-b:a".into(), "192k".into(),
+        "-ac".into(), "6".into(),
         "-sn".into(),
         "-f".into(), "mp4".into(),
         "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof".into(),
@@ -240,7 +260,7 @@ async fn h_play(
 
     let mut child = match tokio::process::Command::new(ffmpeg_bin())
         .args(&args)
-        .stdin(Stdio::piped())
+        .stdin(if use_http_seek { Stdio::null() } else { Stdio::piped() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -252,15 +272,15 @@ async fn h_play(
             .unwrap(),
     };
 
-    // Pipe librqbit stream → ffmpeg stdin sequentially (no seeking, no blocking).
-    if let Some(mut ffmpeg_stdin) = child.stdin.take() {
-        let mut rqbit_read = rqbit_stream;
-        tokio::spawn(async move {
-            tokio::io::copy(&mut rqbit_read, &mut ffmpeg_stdin).await.ok();
-        });
+    // Pipe librqbit stream → ffmpeg stdin (initial play only).
+    if let Some(mut rqbit_read) = maybe_pipe {
+        if let Some(mut ffmpeg_stdin) = child.stdin.take() {
+            tokio::spawn(async move {
+                tokio::io::copy(&mut rqbit_read, &mut ffmpeg_stdin).await.ok();
+            });
+        }
     }
 
-    // Log ffmpeg stderr so we can diagnose issues without silencing errors.
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
@@ -368,7 +388,8 @@ fn build_codec_args(can_copy_video: bool, can_copy_audio: bool) -> Vec<String> {
     if can_copy_audio {
         args.extend(["-c:a".into(), "copy".into()]);
     } else {
-        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
+        // -ac 6 downmixes TrueHD Atmos 7.1 / DTS-X to 5.1 — browsers can't play >6ch AAC
+        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(), "-ac".into(), "6".into()]);
     }
     args
 }
@@ -386,7 +407,7 @@ async fn h_play_plex(
     let can_copy_audio = audio_codec == "aac";
     log::warn!("[ffmpeg-plex] codec={video_codec}/{audio_codec} copy_v={can_copy_video} copy_a={can_copy_audio}");
 
-    let mut args: Vec<String> = vec!["-v".into(), "quiet".into()];
+    let mut args: Vec<String> = vec!["-v".into(), "error".into()];
     if !can_copy_video {
         args.extend(["-hwaccel".into(), "auto".into()]);
     }
@@ -398,6 +419,12 @@ async fn h_play_plex(
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
     }
+    // HTTP reconnect options keep the connection alive if Plex briefly drops it during seeks
+    args.extend([
+        "-reconnect".into(), "1".into(),
+        "-reconnect_streamed".into(), "1".into(),
+        "-reconnect_delay_max".into(), "2".into(),
+    ]);
     args.extend([
         "-i".into(), params.url,
         "-map".into(), "0:v:0".into(),
@@ -545,13 +572,13 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
     let can_copy_audio = audio_codec == "aac";
     log::warn!("[ffmpeg-local] codec={video_codec}/{audio_codec} copy_v={can_copy_video} copy_a={can_copy_audio}");
 
-    let mut args: Vec<String> = vec!["-v".into(), "quiet".into()];
+    let mut args: Vec<String> = vec!["-v".into(), "error".into()];
     if !can_copy_video {
         args.extend(["-hwaccel".into(), "auto".into()]);
     }
     args.extend([
-        "-analyzeduration".into(), "10000000".into(),
-        "-probesize".into(), "10000000".into(),
+        "-analyzeduration".into(), "2000000".into(),
+        "-probesize".into(), "5000000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
     ]);
     if start_secs > 0.5 {

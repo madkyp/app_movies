@@ -6,6 +6,29 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
 
 ---
 
+## Índice
+
+- [Capturas de pantalla](#capturas-de-pantalla)
+- [Características](#características)
+  - [Catálogo inteligente](#catálogo-inteligente)
+  - [Continuar viendo](#continuar-viendo)
+  - [Detalle de película o serie](#detalle-de-película-o-serie)
+  - [Streaming por torrent](#streaming-por-torrent)
+  - [Series — Temporadas y episodios](#series--temporadas-y-episodios)
+  - [Integración Plex](#integración-plex)
+  - [Mis Carpetas — NAS y red local](#mis-carpetas--nas-y-red-local)
+  - [Reproductor integrado](#reproductor-integrado)
+  - [Subtítulos externos](#subtítulos-externos)
+- [Plataformas](#plataformas)
+- [Stack tecnológico](#stack-tecnológico)
+- [Instalación en Linux](#instalación-en-linux)
+- [Instalación en Windows](#instalación-en-windows)
+- [Configuración](#configuración)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Licencia](#licencia)
+
+---
+
 ## Capturas de pantalla
 
 | | |
@@ -20,29 +43,58 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
 ## Características
 
 ### Catálogo inteligente
+
 Pantalla de inicio con sección hero, tendencias de la semana, películas y series populares. Búsqueda global en tiempo real. Los datos del catálogo se obtienen de la **API de TMDB** (API key incluida, no se necesita configurar nada).
 
+### Continuar viendo
+
+La app guarda automáticamente el progreso de reproducción cada 10 segundos. La pantalla de inicio muestra una fila **"Continuar viendo"** con las películas y series a medio ver, con barra de progreso y tiempo restante. Al pulsar sobre un elemento, el reproductor arranca directamente desde el punto donde lo dejaste con una notificación que permite reiniciar desde el principio si se prefiere.
+
 ### Detalle de película o serie
+
 Vista con sinopsis, puntuación, año, duración, géneros y reparto principal. Incluye el **tráiler oficial de YouTube** (abre en el navegador) y **reseñas de TMDB**. Desde aquí puedes reproducir vía torrent, vía Plex o añadir a **Mi Lista**.
 
 ### Streaming por torrent
-Busca fuentes en **YTS** (películas) y **EZTV** (series) directamente desde la app. Cada resultado muestra la calidad (4K / 1080p), idioma (ESP / LAT / DUAL), códec (x265 / x264), tamaño y número de seeds. Al pulsar Play, la descarga empieza y la reproducción comienza de inmediato gracias al motor integrado **librqbit**, con soporte para trackers públicos como fallback.
+
+Busca fuentes en **YTS** (películas) y **EZTV** (series) directamente desde la app. Cada resultado muestra la calidad (4K / 1080p), idioma (ESP / LAT / DUAL), códec (x265 / x264), tamaño y número de seeds. Los resultados se ordenan **primero por idioma español** (ESP, LAT, DUAL) y después por seeds descendente.
+
+Al pulsar Play, la descarga empieza y la reproducción comienza de inmediato gracias al motor integrado **librqbit**. El reproductor soporta **seek real**: al avanzar a un punto no descargado, librqbit prioriza las piezas de ese offset y empieza a reproducir desde ahí en cuanto tiene suficiente buffer.
 
 ### Series — Temporadas y episodios
+
 Vista de serie con pestañas por temporada y listado de episodios con miniatura, sinopsis y fecha. Cada episodio tiene su propio buscador de fuentes torrent.
 
 ### Integración Plex
-Conecta con un servidor **Plex Media Server** preconfigurado o introduce tus propias credenciales en Ajustes. Navega tus bibliotecas en cuadrícula y reproduce cualquier archivo con un clic. Si el servidor no está disponible aparece un botón para **quitarlo** y configurar el tuyo propio.
+
+Conecta con un servidor **Plex Media Server** preconfigurado o introduce tus propias credenciales en Ajustes. Navega tus bibliotecas en cuadrícula y reproduce cualquier archivo con un clic. El vídeo se transcodifica localmente mediante ffmpeg para máxima compatibilidad. Al avanzar en la reproducción, ffmpeg retoma desde la nueva posición de forma transparente con reintentos automáticos si la reconexión tarda.
 
 ### Mis Carpetas — NAS y red local
+
 Añade carpetas locales o recursos de red via **SMB**:
-- **Linux**: `smb://usuario:contraseña@host/share` (vía smbclient)
+
+- **Linux**: `smb://host/share` (modo invitado) o `smb://usuario:contraseña@host/share`
 - **Windows**: acceso nativo via rutas UNC (`\\host\share`) con autenticación automática
 
-Navega la estructura de directorios con breadcrumb. Los archivos del NAS se reproducen directamente sin necesidad de descarga previa en Windows.
+Navega la estructura de directorios con breadcrumb. Los archivos del NAS se cachean en `~/.cache/streamdeck/smb/` (no en RAM) y se eliminan automáticamente al salir del reproductor y al iniciar la app, evitando que ocupen espacio en disco de forma permanente.
 
 ### Reproductor integrado
-Player con controles completos (play/pausa, seek, barra de progreso), selector de **pista de audio** para archivos con varios idiomas, y opción de abrir en **mpv** como reproductor externo. Compatible con torrents activos, archivos locales y archivos de red.
+
+Player con controles completos para las tres fuentes (torrent, Plex y archivos locales/NAS):
+
+| Acción | Control |
+|--------|---------|
+| Play / Pausa | `Space` o clic |
+| Retroceder 10 s | `←` |
+| Avanzar 10 s | `→` |
+| Pantalla completa | `F` |
+| Silenciar | `M` |
+| Seek preciso | Barra de progreso (−30s / −10s / +10s / +30s) |
+
+Selector de **pista de audio** para archivos con varios idiomas. Opción de abrir en **mpv** como reproductor externo. El audio multicanal (TrueHD Atmos 7.1, DTS-X) se mezcla automáticamente a 5.1 para garantizar compatibilidad con el navegador.
+
+### Subtítulos externos
+
+Busca y descarga subtítulos de **OpenSubtitles** desde el panel de subtítulos en el reproductor. Compatible con los tres modos de reproducción. Requiere una API key gratuita de OpenSubtitles (configurable en Ajustes).
 
 ---
 
@@ -71,6 +123,8 @@ Player con controles completos (play/pausa, seek, barra de progreso), selector d
 | API de catálogo | TMDB API |
 | Streaming de vídeo | ffmpeg (servidor HTTP local en puerto 7777) |
 | Reproductor externo | mpv |
+| Estado global | Zustand (con persistencia) |
+| Subtítulos | OpenSubtitles API |
 | Acceso NAS (Linux) | smbclient (Samba) |
 | Acceso NAS (Windows) | UNC paths + net use |
 
@@ -128,12 +182,21 @@ Si el servidor preconfigurado no responde, aparecerá un botón **Quitar servido
 
 1. Ve a **Mis Carpetas** en la barra lateral
 2. Haz clic en **Añadir carpeta**
-3. Introduce un nombre y la ruta: `smb://usuario:contraseña@IP_DEL_NAS/NombreShare`
+3. Introduce un nombre y la ruta: `smb://host/NombreShare` (invitado) o `smb://usuario:contraseña@IP/Share`
 4. La app comprobará la conexión antes de guardar
+
+Los archivos grandes del NAS se cachean en `~/.cache/streamdeck/smb/` antes de reproducirse. La caché se limpia automáticamente al salir del reproductor.
 
 ### NAS / SMB (Windows)
 
-En Windows el acceso SMB es nativo. Usa el mismo formato `smb://host/share` y si el recurso requiere credenciales introdúcelas en la URL: `smb://usuario:contraseña@host/share`. La autenticación se gestiona automáticamente con `net use`.
+En Windows el acceso SMB es nativo. Usa el mismo formato `smb://host/share` y si el recurso requiere credenciales introdúcelas en la URL: `smb://usuario:contraseña@host/share`.
+
+### OpenSubtitles
+
+1. Crea una cuenta gratuita en [opensubtitles.com](https://www.opensubtitles.com)
+2. Genera una API key en tu perfil
+3. Abre la app → **Ajustes** → pega la API key en el campo correspondiente
+4. En el reproductor, pulsa el botón **CC** para buscar subtítulos
 
 ---
 
@@ -143,24 +206,25 @@ En Windows el acceso SMB es nativo. Usa el mismo formato `smb://host/share` y si
 app_movies/
 ├── src/
 │   ├── views/
-│   │   ├── Home.tsx            # Pantalla de inicio con catálogo
+│   │   ├── Home.tsx            # Inicio: hero, tendencias, continuar viendo
 │   │   ├── Movies.tsx          # Listado de películas
 │   │   ├── Series.tsx          # Listado de series
 │   │   ├── Detail.tsx          # Detalle + tráiler + reseñas
-│   │   ├── Player.tsx          # Reproductor integrado
+│   │   ├── Player.tsx          # Reproductor (torrent / Plex / local)
 │   │   ├── Search.tsx          # Búsqueda global
 │   │   ├── Watchlist.tsx       # Mi Lista
+│   │   ├── History.tsx         # Historial de reproducción
 │   │   ├── PlexBrowser.tsx     # Navegador Plex
 │   │   ├── NetworkFolders.tsx  # Mis Carpetas (NAS/SMB)
 │   │   └── Settings.tsx        # Ajustes
 │   ├── components/             # Componentes reutilizables
 │   ├── hooks/                  # usePlex, useTmdb
-│   ├── store/                  # Estado global (Zustand)
+│   ├── store/                  # Estado global con persistencia (Zustand)
 │   └── types/                  # Tipos TypeScript
 └── src-tauri/
     └── src/
-        ├── commands.rs         # Torrents, SMB, ffmpeg, mpv
-        ├── torrent_manager.rs  # Motor de torrents (librqbit)
+        ├── commands.rs         # SMB, subtítulos, mpv
+        ├── torrent_manager.rs  # Motor de torrents + servidor ffmpeg
         └── lib.rs              # Setup de la app
 ```
 
