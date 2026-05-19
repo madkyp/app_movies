@@ -180,6 +180,16 @@ function SubtitlePanel({ show, lang, results, loading, downloading, error, extSu
   );
 }
 
+const ES_LANGS = new Set(["es", "es-lat", "dual"]);
+function sortSources(sources: TorrentSource[]): TorrentSource[] {
+  return [...sources].sort((a, b) => {
+    const aEs = ES_LANGS.has(a.language) ? 0 : 1;
+    const bEs = ES_LANGS.has(b.language) ? 0 : 1;
+    if (aEs !== bEs) return aEs - bEs;
+    return b.seeds - a.seeds;
+  });
+}
+
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
   const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, settings } = useStore();
@@ -274,7 +284,7 @@ export function Player() {
       setLoadingSources(true);
       setSourcesError(null);
       invoke<TorrentSource[]>("search_yts", { query: searchTitle, imdbId })
-        .then((s) => setSources(s.sort((a, b) => b.seeds - a.seeds)))
+        .then((s) => setSources(sortSources(s)))
         .catch((e) => setSourcesError(String(e)))
         .finally(() => setLoadingSources(false));
       return;
@@ -293,7 +303,7 @@ export function Player() {
         season: selectedEpisode.season_number,
         episode: selectedEpisode.episode_number,
       })
-        .then((s) => setSources(s.sort((a, b) => b.seeds - a.seeds)))
+        .then((s) => setSources(sortSources(s)))
         .catch((e) => setSourcesError(String(e)))
         .finally(() => setLoadingSources(false));
     }
