@@ -1727,22 +1727,12 @@ fn parse_smb_url(url: &str) -> (String, String, String, String, String) {
 
 #[cfg(not(windows))]
 fn smb_auth_args(user: &str, pass: &str) -> Vec<String> {
-    let mut args = vec![
-        // Allow SMB1 (NT1) for old NAS devices — guest access is often on SMB1
-        "--option=client min protocol=NT1".to_string(),
-        // Some servers require NTLMv2 to be disabled for guest
-        "--option=client NTLMv2 auth = no".to_string(),
-    ];
     if user.is_empty() {
-        // guest%  = user "guest" with empty password; more compatible than bare -N
-        // because many servers map explicit guest login to anonymous even when -N is rejected
-        args.push("-U".to_string());
-        args.push("guest%".to_string());
+        // guest% = user "guest" with empty password; more compatible than bare -N
+        vec!["-U".to_string(), "guest%".to_string()]
     } else {
-        args.push("-U".to_string());
-        args.push(format!("{}%{}", user, pass));
+        vec!["-U".to_string(), format!("{}%{}", user, pass)]
     }
-    args
 }
 
 #[cfg(not(windows))]
