@@ -1909,17 +1909,17 @@ fn smb_to_unc(host: &str, share: &str, subpath: &str) -> String {
 }
 
 /// Autentica contra el servidor con `net use \\host\IPC$`
+/// Sintaxis: net use <target> [password] [/user:username] /persistent:no
 #[cfg(windows)]
 async fn smb_authenticate_windows(host: &str, user: &str, pass: &str) -> Result<(), String> {
     let target = format!(r"\\{}\IPC$", host);
     let mut args = vec!["use".to_string(), target];
-    if user.is_empty() {
-        args.push("/user:".to_string());
-        args.push(String::new());
-    } else {
-        args.push(pass.to_string());
+    if !user.is_empty() {
+        // password (empty string = no password), then /user:name
+        args.push(if pass.is_empty() { "\"\"".to_string() } else { pass.to_string() });
         args.push(format!("/user:{}", user));
     }
+    // Without user: let Windows negotiate (guest / current session)
     args.push("/persistent:no".to_string());
 
     let out = proc_cmd("net")

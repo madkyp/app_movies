@@ -83,6 +83,7 @@ export function NetworkFolders() {
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   const isSmb = addPath.trimStart().startsWith("smb://");
+  const isWindows = navigator.userAgent.includes("Windows");
 
   // Load saved folders on mount
   useEffect(() => {
@@ -227,7 +228,10 @@ export function NetworkFolders() {
               <input
                 ref={pathInputRef}
                 type="text"
-                placeholder="/mnt/nas/Peliculas  o  smb://192.168.1.10"
+                placeholder={isWindows
+                  ? "C:\\Videos  |  Z:\\  |  smb://192.168.1.10/Peliculas"
+                  : "/mnt/nas/Peliculas  |  smb://192.168.1.10"
+                }
                 value={addPath}
                 onChange={(e) => { setAddPath(e.target.value); setCheckOk(false); setAddError(null); }}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAddFolder(); }}
@@ -305,10 +309,20 @@ export function NetworkFolders() {
                 Cancelar
               </button>
             </div>
-            <p className="text-text-muted text-[10px] leading-relaxed">
-              Para rutas SMB se necesita <code className="bg-bg-secondary px-1 rounded">smbclient</code> instalado (paquete <code className="bg-bg-secondary px-1 rounded">samba</code>).
-              Deja usuario vacío para acceso de invitado. Las carpetas en <code className="bg-bg-secondary px-1 rounded">/mnt/</code> funcionan directamente.
-            </p>
+            {isWindows ? (
+              <p className="text-text-muted text-[10px] leading-relaxed">
+                <strong className="text-text-secondary">Local:</strong> <code className="bg-bg-secondary px-1 rounded">C:\Videos</code> —{" "}
+                <strong className="text-text-secondary">Unidad mapeada:</strong> <code className="bg-bg-secondary px-1 rounded">Z:\</code> —{" "}
+                <strong className="text-text-secondary">Red (SMB):</strong> <code className="bg-bg-secondary px-1 rounded">smb://192.168.1.10/Peliculas</code>.{" "}
+                Deja usuario vacío para acceso de invitado.
+              </p>
+            ) : (
+              <p className="text-text-muted text-[10px] leading-relaxed">
+                <strong className="text-text-secondary">Local/montada:</strong> <code className="bg-bg-secondary px-1 rounded">/mnt/nas/Peliculas</code> —{" "}
+                <strong className="text-text-secondary">Red (SMB):</strong> <code className="bg-bg-secondary px-1 rounded">smb://192.168.1.10/Peliculas</code>.{" "}
+                Requiere <code className="bg-bg-secondary px-1 rounded">smbclient</code> (paquete <code className="bg-bg-secondary px-1 rounded">samba</code>). Deja usuario vacío para invitado.
+              </p>
+            )}
           </div>
         )}
 
