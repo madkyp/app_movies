@@ -25,10 +25,17 @@ export function Series() {
   const [loading, setLoading] = useState(false);
   const [genre, setGenre] = useState(0);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
-  const isIntersectingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+
+  const isSentinelVisible = () => {
+    const el = sentinelRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.top < window.innerHeight + 200;
+  };
 
   const loadPage = useCallback((pg: number, gn: number, append: boolean) => {
     if (loadingRef.current) return;
@@ -41,13 +48,22 @@ export function Series() {
       .then((d) => {
         const results: Media[] = d.results.map((m: Media) => ({ ...m, media_type: "tv" as const }));
         setSeries((prev) => append ? [...prev, ...results] : results);
-        setHasMore(pg < (d.total_pages ?? 1));
+        const more = pg < (d.total_pages ?? 1);
+        setHasMore(more);
+        hasMoreRef.current = more;
       })
       .catch(console.error)
-      .finally(() => { setLoading(false); loadingRef.current = false; });
+      .finally(() => {
+        setLoading(false);
+        loadingRef.current = false;
+        if (hasMoreRef.current && isSentinelVisible()) {
+          setPage((p) => p + 1);
+        }
+      });
   }, [settings.tmdbApiKey]);
 
   useEffect(() => {
+    hasMoreRef.current = true;
     setSeries([]);
     setPage(1);
     setHasMore(true);
@@ -64,8 +80,7 @@ export function Series() {
     if (!el) return;
     const obs = new IntersectionObserver(
       (entries) => {
-        isIntersectingRef.current = entries[0].isIntersecting;
-        if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
           setPage((p) => p + 1);
         }
       },
@@ -73,13 +88,7 @@ export function Series() {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [hasMore]);
-
-  useEffect(() => {
-    if (!loading && hasMore && isIntersectingRef.current) {
-      setPage((p) => p + 1);
-    }
-  }, [loading, hasMore]);
+  }, []);
 
   async function handleSelect(m: Media) {
     await fetchDetail(m.id, "tv");

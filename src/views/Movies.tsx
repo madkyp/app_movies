@@ -25,10 +25,17 @@ export function Movies() {
   const [loading, setLoading] = useState(false);
   const [genre, setGenre] = useState(0);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
-  const isIntersectingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+
+  const isSentinelVisible = () => {
+    const el = sentinelRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.top < window.innerHeight + 200;
+  };
 
   const loadPage = useCallback((pg: number, gn: number, append: boolean) => {
     if (loadingRef.current) return;
@@ -41,14 +48,23 @@ export function Movies() {
       .then((d) => {
         const results: Media[] = d.results.map((m: Media) => ({ ...m, media_type: "movie" as const }));
         setMovies((prev) => append ? [...prev, ...results] : results);
-        setHasMore(pg < (d.total_pages ?? 1));
+        const more = pg < (d.total_pages ?? 1);
+        setHasMore(more);
+        hasMoreRef.current = more;
       })
       .catch(console.error)
-      .finally(() => { setLoading(false); loadingRef.current = false; });
+      .finally(() => {
+        setLoading(false);
+        loadingRef.current = false;
+        if (hasMoreRef.current && isSentinelVisible()) {
+          setPage((p) => p + 1);
+        }
+      });
   }, [settings.tmdbApiKey]);
 
   // Reset when genre changes
   useEffect(() => {
+    hasMoreRef.current = true;
     setMovies([]);
     setPage(1);
     setHasMore(true);
@@ -61,14 +77,13 @@ export function Movies() {
     loadPage(page, genre, true);
   }, [page]);
 
-  // IntersectionObserver on sentinel
+  // IntersectionObserver for manual scroll
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(
       (entries) => {
-        isIntersectingRef.current = entries[0].isIntersecting;
-        if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
           setPage((p) => p + 1);
         }
       },
@@ -76,14 +91,7 @@ export function Movies() {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [hasMore]);
-
-  // If sentinel is still visible when a page finishes loading, trigger the next one
-  useEffect(() => {
-    if (!loading && hasMore && isIntersectingRef.current) {
-      setPage((p) => p + 1);
-    }
-  }, [loading, hasMore]);
+  }, []);
 
   async function handleSelect(m: Media) {
     await fetchDetail(m.id, "movie");
