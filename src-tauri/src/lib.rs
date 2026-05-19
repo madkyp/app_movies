@@ -6,8 +6,32 @@ use std::sync::Arc;
 use tauri::Manager;
 use torrent_manager::TorrentManager;
 
+#[cfg(target_os = "linux")]
+fn fix_gtk_pixbuf_env() {
+    // Point GTK to the system pixbuf loaders cache so it never tries to write
+    // a new one at startup. Without this, GTK crashes with ENOSPC (or SIGABRT)
+    // on systems where the cache path is not writable or is on a tmpfs.
+    if std::env::var("GDK_PIXBUF_MODULE_FILE").is_ok() {
+        return;
+    }
+    let candidates = [
+        "/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache",
+        "/usr/lib64/gdk-pixbuf-2.0/2.10.0/loaders.cache",
+        "/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            std::env::set_var("GDK_PIXBUF_MODULE_FILE", path);
+            return;
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    fix_gtk_pixbuf_env();
+
     // Silence librqbit's noisy peer-churn ERROR spans (normal BitTorrent behavior)
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "warn,librqbit=warn,librqbit_dht=warn,tracing::span=off");
