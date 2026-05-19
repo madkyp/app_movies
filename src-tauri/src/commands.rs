@@ -2028,15 +2028,25 @@ async fn fetch_smb_to_cache_linux(url: String) -> Result<String, String> {
     let ext = subpath.rsplit('.').next()
         .filter(|e| e.len() <= 5 && !e.contains('/'))
         .unwrap_or("mkv");
-    let cache_dir = "/tmp/streamdeck_smb";
-    let cache_path = format!("{}/{:016x}.{}", cache_dir, hash, ext);
+    // Use XDG cache dir on real disk — /tmp is tmpfs (RAM) on CachyOS and can't
+    // hold large video files (e.g. a 4 GB MKV fills RAM-based /tmp immediately).
+    let cache_dir = std::env::var("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".cache"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        })
+        .join("streamdeck/smb");
+    let cache_path = cache_dir.join(format!("{:016x}.{}", hash, ext));
+    let cache_path = cache_path.to_string_lossy().to_string();
 
     // Already fully downloaded — return instantly.
     if std::path::Path::new(&cache_path).exists() {
         return Ok(cache_path);
     }
 
-    tokio::fs::create_dir_all(cache_dir).await.map_err(|e| e.to_string())?;
+    tokio::fs::create_dir_all(&cache_dir).await.map_err(|e| e.to_string())?;
 
     // Build smbclient "cd <dir>; get <file> <local>" command.
     // smbget doesn't support --option flags so we use smbclient instead.
