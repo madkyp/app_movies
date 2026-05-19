@@ -28,6 +28,7 @@ export function Series() {
   const [hasMore, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const isIntersectingRef = useRef(false);
 
   const loadPage = useCallback((pg: number, gn: number, append: boolean) => {
     if (loadingRef.current) return;
@@ -63,6 +64,7 @@ export function Series() {
     if (!el) return;
     const obs = new IntersectionObserver(
       (entries) => {
+        isIntersectingRef.current = entries[0].isIntersecting;
         if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
           setPage((p) => p + 1);
         }
@@ -72,6 +74,12 @@ export function Series() {
     obs.observe(el);
     return () => obs.disconnect();
   }, [hasMore]);
+
+  useEffect(() => {
+    if (!loading && hasMore && isIntersectingRef.current) {
+      setPage((p) => p + 1);
+    }
+  }, [loading, hasMore]);
 
   async function handleSelect(m: Media) {
     await fetchDetail(m.id, "tv");
