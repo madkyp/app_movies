@@ -1986,7 +1986,7 @@ async fn browse_via_smb_windows(url: &str) -> Result<Vec<FolderEntry>, String> {
     Ok(entries)
 }
 
-pub fn smb_cache_dir() -> std::path::PathBuf {
+fn cache_base_dir() -> std::path::PathBuf {
     std::env::var("XDG_CACHE_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
@@ -1994,12 +1994,55 @@ pub fn smb_cache_dir() -> std::path::PathBuf {
                 .map(|h| std::path::PathBuf::from(h).join(".cache"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
         })
-        .join("streamdeck/smb")
+        .join("streamdeck")
+}
+
+pub fn smb_cache_dir() -> std::path::PathBuf {
+    cache_base_dir().join("smb")
 }
 
 #[tauri::command]
 pub async fn clear_smb_cache() -> Result<(), String> {
     let _ = tokio::fs::remove_dir_all(smb_cache_dir()).await;
+    Ok(())
+}
+
+/// Returns total bytes used by ~/.cache/streamdeck
+#[tauri::command]
+pub async fn get_cache_size() -> Result<u64, String> {
+    let root = cache_base_dir();
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut total: u64 = 0;
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let mut rd = match tokio::fs::read_dir(&dir).await {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let meta = match entry.metadata().await {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else {
+                total += meta.len();
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// Removes everything under ~/.cache/streamdeck
+#[tauri::command]
+pub async fn clear_cache() -> Result<(), String> {
+    let root = cache_base_dir();
+    if root.exists() {
+        tokio::fs::remove_dir_all(&root).await.map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

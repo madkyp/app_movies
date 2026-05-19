@@ -9,6 +9,7 @@ interface AppState {
   settings: AppSettings;
   watchlist: Media[];
   history: HistoryEntry[];
+  watchedEpisodes: string[]; // keys: "${tmdbId}-S${season}E${ep}"
   continueWatching: { media: Media; progress: number; timestamp: number }[];
   plexDirectUrl: string | null;
   plexDirectDuration: number;
@@ -27,6 +28,8 @@ interface AppState {
   updateHistoryProgress: (id: string, progressSecs: number, durationSecs: number) => void;
   removeFromHistory: (id: string) => void;
   clearHistory: () => void;
+  markEpisodeWatched: (tmdbId: number, season: number, episode: number) => void;
+  markEpisodeUnwatched: (tmdbId: number, season: number, episode: number) => void;
   setPlexDirectUrl: (url: string | null, durationSecs?: number) => void;
   setLocalFileUrl: (url: string | null, title?: string) => void;
   setPendingTorrentResume: (r: { magnet: string; episode?: { id?: number; season: number; episode: number; name: string } } | null) => void;
@@ -47,6 +50,7 @@ export const useStore = create<AppState>()(
       },
       watchlist: [],
       history: [],
+      watchedEpisodes: [],
       continueWatching: [],
       plexDirectUrl: null,
       plexDirectDuration: 0,
@@ -93,13 +97,25 @@ export const useStore = create<AppState>()(
       removeFromHistory: (id) =>
         set((state) => ({ history: state.history.filter((h) => h.id !== id) })),
       clearHistory: () => set({ history: [] }),
+      markEpisodeWatched: (tmdbId, season, episode) => {
+        const key = `${tmdbId}-S${season}E${episode}`;
+        set((state) => ({
+          watchedEpisodes: state.watchedEpisodes.includes(key)
+            ? state.watchedEpisodes
+            : [...state.watchedEpisodes, key],
+        }));
+      },
+      markEpisodeUnwatched: (tmdbId, season, episode) => {
+        const key = `${tmdbId}-S${season}E${episode}`;
+        set((state) => ({ watchedEpisodes: state.watchedEpisodes.filter((k) => k !== key) }));
+      },
       setPlexDirectUrl: (url, durationSecs = 0) => set({ plexDirectUrl: url, plexDirectDuration: durationSecs }),
       setLocalFileUrl: (url, title = "") => set({ localFileUrl: url, localFileTitle: title }),
       setPendingTorrentResume: (r) => set({ pendingTorrentResume: r }),
     }),
     {
       name: "streamdeck-store",
-      partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist, history: s.history }),
+      partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist, history: s.history, watchedEpisodes: s.watchedEpisodes }),
     }
   )
 );

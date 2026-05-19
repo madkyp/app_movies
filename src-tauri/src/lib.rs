@@ -87,6 +87,8 @@ pub fn run() {
             commands::search_subtitles,
             commands::download_subtitle,
             commands::clear_smb_cache,
+            commands::get_cache_size,
+            commands::clear_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

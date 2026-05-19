@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Server, FolderOpen, Subtitles } from "lucide-react";
+import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Server, FolderOpen, Subtitles, CheckCircle2, Circle, ChevronRight } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useSeasonEpisodes } from "../hooks/useTmdb";
 import { cn, TMDB_IMAGE_BASE } from "../lib/utils";
@@ -202,7 +202,7 @@ function sortSources(sources: TorrentSource[]): TorrentSource[] {
 
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
-  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings, pendingTorrentResume, setPendingTorrentResume } = useStore();
+  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings, pendingTorrentResume, setPendingTorrentResume, watchedEpisodes, markEpisodeWatched, markEpisodeUnwatched } = useStore();
 
   // SMB: download to local cache before playing
   const [effectiveLocalPath, setEffectiveLocalPath] = useState<string | null>(null);
@@ -290,6 +290,10 @@ export function Player() {
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
+  // Ref callback to auto-scroll to the "next" episode
+  const nextEpisodeRef = useCallback((el: HTMLDivElement | null) => {
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   // ── Default season when media changes ────────────────────────────────────────
   useEffect(() => {
@@ -567,6 +571,14 @@ export function Player() {
     }, 10_000);
     return () => clearInterval(id);
   }, [updateHistoryProgress]);
+
+  // ── Auto-mark episode as watched when progress ≥ 90% ───────────────────────
+  useEffect(() => {
+    if (!isSeries || !selectedEpisode || !mediaId) return;
+    if (duration > 0 && currentTime / duration >= 0.9) {
+      markEpisodeWatched(mediaId, selectedEpisode.season_number, selectedEpisode.episode_number);
+    }
+  }, [currentTime, duration, isSeries, selectedEpisode, mediaId, markEpisodeWatched]);
 
   // ── Auto-start torrent from "Continuar viendo" (pendingTorrentResume in store) ──
   useEffect(() => {
@@ -1647,45 +1659,125 @@ export function Player() {
           </div>
         )}
 
-        {!loadingEpisodes && episodes.length > 0 && (
-          <div className="space-y-2 max-w-4xl">
-            {episodes.map((ep) => (
-              <div
-                key={ep.id}
-                onClick={() => setSelectedEpisode(ep)}
-                className="flex items-center gap-4 p-3 rounded-xl border bg-bg-card border-border hover:border-accent/50 hover:bg-bg-hover cursor-pointer transition-all"
-              >
-                {ep.still_path && (
-                  <img
-                    src={`${TMDB_IMAGE_BASE}/w300${ep.still_path}`}
-                    alt=""
-                    className="w-32 h-18 object-cover rounded-md flex-shrink-0"
-                    style={{ aspectRatio: "16/9" }}
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-text-muted text-xs font-mono">
-                      S{String(ep.season_number).padStart(2,"0")}E{String(ep.episode_number).padStart(2,"0")}
-                    </span>
-                    <h3 className="text-white text-sm font-medium truncate">{ep.name}</h3>
+        {!loadingEpisodes && episodes.length > 0 && (() => {
+          const watchedSet = new Set(watchedEpisodes);
+          const epKey = (season: number, ep: number) => `${mediaId}-S${season}E${ep}`;
+
+          // History entries for this series (current season)
+          const histMap = new Map(
+            history
+              .filter((h) => h.tmdb_id === mediaId && h.episode?.season === selectedSeason)
+              .map((h) => [`${h.episode!.season}-${h.episode!.episode}`, h])
+          );
+
+          // First unwatched episode = next to watch
+          const nextEp = episodes.find((ep) => !watchedSet.has(epKey(ep.season_number, ep.episode_number)));
+
+          return (
+            <div className="space-y-2 max-w-4xl">
+              {episodes.map((ep) => {
+                const key = epKey(ep.season_number, ep.episode_number);
+                const isWatched = watchedSet.has(key);
+                const histEntry = histMap.get(`${ep.season_number}-${ep.episode_number}`);
+                const isInProgress = !isWatched && histEntry?.progressSecs && histEntry.progressSecs > 30
+                  && histEntry.durationSecs && histEntry.progressSecs < histEntry.durationSecs * 0.95;
+                const isNext = nextEp?.id === ep.id;
+                const pct = isInProgress && histEntry!.durationSecs
+                  ? Math.min(histEntry!.progressSecs! / histEntry!.durationSecs, 1)
+                  : 0;
+
+                return (
+                  <div
+                    key={ep.id}
+                    ref={isNext ? nextEpisodeRef : undefined}
+                    onClick={() => setSelectedEpisode(ep)}
+                    className={cn(
+                      "flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all",
+                      isNext
+                        ? "bg-accent/5 border-accent/40 hover:border-accent/70 hover:bg-accent/10"
+                        : isWatched
+                        ? "bg-bg-card border-border opacity-60 hover:opacity-100 hover:border-accent/30 hover:bg-bg-hover"
+                        : "bg-bg-card border-border hover:border-accent/50 hover:bg-bg-hover"
+                    )}
+                  >
+                    {/* Thumbnail */}
+                    <div className="relative flex-shrink-0 rounded-md overflow-hidden bg-bg-secondary"
+                         style={{ width: 128, aspectRatio: "16/9" }}>
+                      {ep.still_path
+                        ? <img src={`${TMDB_IMAGE_BASE}/w300${ep.still_path}`} alt="" className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center"><Play size={20} className="text-text-muted" /></div>
+                      }
+                      {isWatched && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <CheckCircle2 size={28} className="text-accent" />
+                        </div>
+                      )}
+                      {isInProgress && pct > 0 && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                          <div className="h-full bg-accent" style={{ width: `${pct * 100}%` }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-text-muted text-xs font-mono">
+                          S{String(ep.season_number).padStart(2,"0")}E{String(ep.episode_number).padStart(2,"0")}
+                        </span>
+                        {isNext && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent/20 text-accent border border-accent/40">
+                            <ChevronRight size={9} /> Siguiente
+                          </span>
+                        )}
+                        {isWatched && (
+                          <span className="text-[10px] text-text-muted">Visto</span>
+                        )}
+                        <h3 className="text-white text-sm font-medium truncate">{ep.name}</h3>
+                      </div>
+                      {ep.air_date && (
+                        <p className="text-text-muted text-xs flex items-center gap-1 mt-1">
+                          <Calendar size={10} /> {ep.air_date}
+                        </p>
+                      )}
+                      {ep.overview && (
+                        <p className="text-text-secondary text-xs mt-1 line-clamp-2">{ep.overview}</p>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Toggle watched */}
+                      <button
+                        title={isWatched ? "Marcar como no visto" : "Marcar como visto"}
+                        className="text-text-muted hover:text-accent transition-colors p-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (mediaId == null) return;
+                          if (isWatched) markEpisodeUnwatched(mediaId, ep.season_number, ep.episode_number);
+                          else markEpisodeWatched(mediaId, ep.season_number, ep.episode_number);
+                        }}
+                      >
+                        {isWatched
+                          ? <CheckCircle2 size={16} className="text-accent" />
+                          : <Circle size={16} />
+                        }
+                      </button>
+
+                      <button
+                        className="btn-primary py-1.5 px-3 text-xs"
+                        onClick={(e) => { e.stopPropagation(); setSelectedEpisode(ep); }}
+                      >
+                        <Play size={12} className="fill-white" />
+                        {isInProgress ? "Continuar" : "Ver"}
+                      </button>
+                    </div>
                   </div>
-                  {ep.air_date && (
-                    <p className="text-text-muted text-xs flex items-center gap-1 mt-1">
-                      <Calendar size={10} /> {ep.air_date}
-                    </p>
-                  )}
-                  {ep.overview && (
-                    <p className="text-text-secondary text-xs mt-1 line-clamp-2">{ep.overview}</p>
-                  )}
-                </div>
-                <button className="btn-primary py-1.5 px-3 text-xs flex-shrink-0">
-                  <Play size={12} className="fill-white" /> Ver
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {!loadingEpisodes && episodes.length === 0 && selectedSeason != null && (
           <div className="flex flex-col items-center justify-center py-16 text-text-muted gap-3">

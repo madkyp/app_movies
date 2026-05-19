@@ -1,6 +1,7 @@
-import { Save, Key, Info, Server, ExternalLink } from "lucide-react";
+import { Save, Key, Info, Server, ExternalLink, HardDrive, Trash2 } from "lucide-react";
 import { useStore } from "../store/useStore";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 export function Settings() {
   const { settings, updateSettings } = useStore();
@@ -9,6 +10,37 @@ export function Settings() {
   const [plexToken, setPlexToken] = useState(settings.plexToken);
   const [osKey, setOsKey] = useState(settings.openSubtitlesApiKey ?? "");
   const [saved, setSaved] = useState<string | null>(null);
+
+  const [cacheBytes, setCacheBytes] = useState<number | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  function fmtBytes(b: number): string {
+    if (b >= 1_073_741_824) return `${(b / 1_073_741_824).toFixed(2)} GB`;
+    if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
+    if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
+    return `${b} B`;
+  }
+
+  async function refreshCacheSize() {
+    try {
+      const bytes = await invoke<number>("get_cache_size");
+      setCacheBytes(bytes);
+    } catch {
+      setCacheBytes(0);
+    }
+  }
+
+  useEffect(() => { refreshCacheSize(); }, []);
+
+  async function handleClearCache() {
+    setClearing(true);
+    try {
+      await invoke("clear_cache");
+      await refreshCacheSize();
+    } finally {
+      setClearing(false);
+    }
+  }
 
   function saveField(field: string, updates: Parameters<typeof updateSettings>[0]) {
     updateSettings(updates);
@@ -112,6 +144,33 @@ export function Settings() {
           <button onClick={() => saveField("os", { openSubtitlesApiKey: osKey })} className="btn-primary text-xs py-2">
             <Save size={13} /> {saved === "os" ? "¡Guardado!" : "Guardar"}
           </button>
+        </div>
+
+        {/* Cache */}
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <HardDrive size={15} className="text-yellow-400" />
+            <h3 className="text-white font-semibold text-sm">Caché local</h3>
+          </div>
+          <p className="text-text-muted text-xs mb-4">
+            Archivos temporales en <code className="text-text-secondary">~/.cache/streamdeck</code> (descargas de NAS/SMB y otros).
+          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-text-secondary text-xs mb-0.5">Espacio usado</p>
+              <p className="text-white font-semibold text-sm">
+                {cacheBytes === null ? "Calculando..." : cacheBytes === 0 ? "Vacía" : fmtBytes(cacheBytes)}
+              </p>
+            </div>
+            <button
+              onClick={handleClearCache}
+              disabled={clearing || cacheBytes === 0}
+              className="btn-ghost text-xs py-1.5 px-3 text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <Trash2 size={13} />
+              {clearing ? "Limpiando..." : "Limpiar caché"}
+            </button>
+          </div>
         </div>
 
         {/* Info */}
