@@ -90,7 +90,8 @@ export interface HistoryEntry {
   source: "torrent" | "plex" | "local";
   playedAt: number;
   path?: string;
-  episode?: { season: number; episode: number; name: string };
+  magnet?: string;
+  episode?: { id?: number; season: number; episode: number; name: string };
   progressSecs?: number;
   durationSecs?: number;
 }

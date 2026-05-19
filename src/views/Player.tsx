@@ -202,7 +202,7 @@ function sortSources(sources: TorrentSource[]): TorrentSource[] {
 
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
-  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings } = useStore();
+  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings, pendingTorrentResume, setPendingTorrentResume } = useStore();
 
   // SMB: download to local cache before playing
   const [effectiveLocalPath, setEffectiveLocalPath] = useState<string | null>(null);
@@ -568,6 +568,33 @@ export function Player() {
     return () => clearInterval(id);
   }, [updateHistoryProgress]);
 
+  // ── Auto-start torrent from "Continuar viendo" (pendingTorrentResume in store) ──
+  useEffect(() => {
+    if (!pendingTorrentResume || streamInfo || !media) return;
+    const { magnet, episode } = pendingTorrentResume;
+    setPendingTorrentResume(null);
+
+    // For series: reconstruct a minimal Episode so handlePlay builds the right histId
+    if (episode) {
+      setSelectedEpisode({
+        id: episode.id ?? 0,
+        episode_number: episode.episode,
+        season_number: episode.season,
+        name: episode.name,
+        overview: "",
+        still_path: null,
+        air_date: null,
+        runtime: null,
+      });
+    }
+
+    // Slight delay so setSelectedEpisode state update is picked up
+    setTimeout(() => {
+      handlePlay({ magnet, title: "", quality: "", codec: "", size: "", seeds: 1, peers: 0, provider: "historial", language: "unknown" });
+    }, 50);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTorrentResume, media?.id]);
+
   // ── After torrent tracksReady: apply pending resume by restarting ffmpeg at offset ────
   useEffect(() => {
     if (!tracksReady || !streamInfo) return;
@@ -675,8 +702,9 @@ export function Player() {
         tmdb_id: media?.id,
         imdb_id: (media as any)?.imdb_id ?? undefined,
         source: "torrent",
+        magnet: source.magnet,
         playedAt: Date.now(),
-        episode: selectedEpisode ? { season: selectedEpisode.season_number, episode: selectedEpisode.episode_number, name: selectedEpisode.name } : undefined,
+        episode: selectedEpisode ? { id: selectedEpisode.id, season: selectedEpisode.season_number, episode: selectedEpisode.episode_number, name: selectedEpisode.name } : undefined,
       });
     } catch (e) {
       setSourcesError(`Error iniciando torrent: ${e}`);

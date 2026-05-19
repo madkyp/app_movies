@@ -14,6 +14,7 @@ interface AppState {
   plexDirectDuration: number;
   localFileUrl: string | null;
   localFileTitle: string;
+  pendingTorrentResume: { magnet: string; episode?: { id?: number; season: number; episode: number; name: string } } | null;
 
   setView: (view: ViewType) => void;
   setSelectedMedia: (media: MediaDetail | null) => void;
@@ -28,6 +29,7 @@ interface AppState {
   clearHistory: () => void;
   setPlexDirectUrl: (url: string | null, durationSecs?: number) => void;
   setLocalFileUrl: (url: string | null, title?: string) => void;
+  setPendingTorrentResume: (r: { magnet: string; episode?: { id?: number; season: number; episode: number; name: string } } | null) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -50,6 +52,7 @@ export const useStore = create<AppState>()(
       plexDirectDuration: 0,
       localFileUrl: null,
       localFileTitle: "",
+      pendingTorrentResume: null,
 
       setView: (view) => set({ view }),
       setSelectedMedia: (media) => set({ selectedMedia: media }),
@@ -92,6 +95,7 @@ export const useStore = create<AppState>()(
       clearHistory: () => set({ history: [] }),
       setPlexDirectUrl: (url, durationSecs = 0) => set({ plexDirectUrl: url, plexDirectDuration: durationSecs }),
       setLocalFileUrl: (url, title = "") => set({ localFileUrl: url, localFileTitle: title }),
+      setPendingTorrentResume: (r) => set({ pendingTorrentResume: r }),
     }),
     {
       name: "streamdeck-store",

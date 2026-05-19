@@ -66,7 +66,7 @@ export function Home() {
   const { data: trending, loading: trendingLoading } = useTrending();
   const { data: movies, loading: moviesLoading } = usePopularMovies();
   const { data: series, loading: seriesLoading } = usePopularSeries();
-  const { setView, history, setLocalFileUrl } = useStore();
+  const { setView, history, setLocalFileUrl, setPendingTorrentResume } = useStore();
   const { fetchDetail } = useMediaDetail();
 
   const hero = trending[0] ?? null;
@@ -89,6 +89,11 @@ export function Home() {
   async function handleContinue(entry: HistoryEntry) {
     if (entry.media_type === "file" && entry.path) {
       setLocalFileUrl(entry.path, entry.title);
+      setView("player");
+    } else if (entry.source === "torrent" && entry.magnet && entry.tmdb_id) {
+      // Torrent con magnet guardado: auto-arranca y reanuda desde el minuto guardado
+      setPendingTorrentResume({ magnet: entry.magnet, episode: entry.episode });
+      await fetchDetail(entry.tmdb_id, entry.media_type as "movie" | "tv");
       setView("player");
     } else if (entry.tmdb_id) {
       await fetchDetail(entry.tmdb_id, entry.media_type as "movie" | "tv");
