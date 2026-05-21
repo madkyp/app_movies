@@ -866,6 +866,7 @@ export function Player() {
         }
       }
       localRetries.current = 0;
+      setLocalVideoError(false);
       setIsBuffering(true);
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
@@ -912,7 +913,7 @@ export function Player() {
             onWaiting={() => setIsBuffering(true)}
             onCanPlay={() => { localRetries.current = 0; setIsBuffering(false); }}
             onError={() => {
-              if (isBufferingRef.current && localRetries.current < 3) {
+              if (localRetries.current < 3) {
                 localRetries.current++;
                 setTimeout(() => {
                   const v = videoRef.current;
@@ -1162,6 +1163,7 @@ export function Player() {
       }
       // Not buffered → restart ffmpeg from new position; reset retry counter
       plexRetries.current = 0;
+      setPlexVideoError(false);
       setIsBuffering(true);
       setStartOffset(Math.floor(t));
       setCurrentTime(t);
@@ -1208,8 +1210,7 @@ export function Player() {
             onWaiting={() => setIsBuffering(true)}
             onCanPlay={() => { plexRetries.current = 0; setIsBuffering(false); }}
             onError={() => {
-              // If we're buffering (mid-seek), retry up to 3× before showing error
-              if (isBufferingRef.current && plexRetries.current < 3) {
+              if (plexRetries.current < 3) {
                 plexRetries.current++;
                 setTimeout(() => {
                   const v = videoRef.current;
