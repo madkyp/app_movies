@@ -67,6 +67,7 @@ install_system_deps() {
             webkit2gtk-4.1 gtk3 openssl \
             appmenu-gtk-module libappindicator-gtk3 librsvg xdotool \
             ffmpeg mpv yt-dlp samba fuse2 \
+            libbluray udisks2 \
             || die "Falló pacman."
 
     elif is_like debian || is_like ubuntu || [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "linuxmint" ]; then
@@ -76,6 +77,7 @@ install_system_deps() {
             libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf \
             ffmpeg mpv yt-dlp smbclient libfuse2 \
+            libbluray2 udisks2 \
             || die "Falló apt."
 
     elif is_like fedora || is_like rhel || [ "$DISTRO_ID" = "fedora" ]; then
@@ -84,6 +86,7 @@ install_system_deps() {
             webkit2gtk4.1-devel openssl-devel gtk3-devel \
             libappindicator-gtk3-devel librsvg2-devel libxdo-devel \
             ffmpeg mpv yt-dlp samba-client fuse \
+            libbluray udisks2 \
             || die "Falló dnf."
 
     elif is_like opensuse || is_like suse || [ "$DISTRO_ID" = "opensuse-tumbleweed" ]; then
@@ -92,6 +95,7 @@ install_system_deps() {
             webkit2gtk3-soup2-devel libopenssl-devel gtk3-devel \
             libappindicator3-1 librsvg-devel \
             ffmpeg mpv yt-dlp samba-client fuse \
+            libbluray udisks2 \
             || die "Falló zypper."
     else
         die "Distribución '$DISTRO_ID' no soportada."
