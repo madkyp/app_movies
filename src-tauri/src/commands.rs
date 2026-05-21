@@ -287,10 +287,48 @@ async fn mpv_ipc_send(cmd: serde_json::Value) -> Result<serde_json::Value, Strin
         }
         Err("no response from mpv".into())
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use tokio::net::windows::named_pipe::ClientOptions;
+        use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
+
+        const PIPE: &str = r"\\.\pipe\streamdeck-mpv";
+
+        // Open the named pipe (synchronous CreateFile wrapped by tokio)
+        let client = tokio::time::timeout(
+            std::time::Duration::from_millis(800),
+            tokio::task::spawn_blocking(|| ClientOptions::new().open(PIPE)),
+        ).await.map_err(|_| "timeout opening mpv pipe")?
+         .map_err(|e| format!("spawn_blocking: {e}"))?
+         .map_err(|e| format!("pipe: {e}"))?;
+
+        let (rd, mut wr) = tokio::io::split(client);
+        let line = serde_json::to_string(&cmd).unwrap() + "\n";
+        tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            wr.write_all(line.as_bytes()),
+        ).await.map_err(|_| "write timeout")?.map_err(|e| format!("{e}"))?;
+
+        let mut reader = BufReader::new(rd);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(800);
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Err("mpv response timeout".into());
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let mut resp = String::new();
+            tokio::time::timeout(remaining, reader.read_line(&mut resp))
+                .await.map_err(|_| "read timeout")?.map_err(|e| format!("{e}"))?;
+            if resp.is_empty() { break; }
+            let v: serde_json::Value = serde_json::from_str(resp.trim()).unwrap_or_default();
+            if v.get("error").is_some() { return Ok(v); }
+        }
+        Err("no response from mpv".into())
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = cmd;
-        Err("MPV IPC not yet supported on Windows".into())
+        Err("MPV IPC not supported on this platform".into())
     }
 }
 
