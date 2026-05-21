@@ -95,8 +95,10 @@ export function MpvOverlay({
       stopPolling();
       invoke("mpv_ipc_quit").catch(() => {});
     };
+  // startSecs intentionally excluded: it's only used at initial launch.
+  // Including it would re-launch mpv every time the parent updates history progress.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, startSecs]);
+  }, [url]);
 
   const handleSeek = useCallback((t: number) => {
     invoke("mpv_ipc_seek", { secs: t }).catch(() => {});
