@@ -263,6 +263,8 @@ async fn h_play(
         "-c:a".into(), "aac".into(),
         "-b:a".into(), "192k".into(),
         "-ac".into(), "6".into(),
+        "-af".into(), "aresample=async=1:min_hard_comp=0.100000:first_pts=0".into(),
+        "-max_muxing_queue_size".into(), "9999".into(),
         "-sn".into(),
         "-f".into(), "mp4".into(),
         "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof".into(),
@@ -399,9 +401,17 @@ fn build_codec_args(can_copy_video: bool, can_copy_audio: bool) -> Vec<String> {
     if can_copy_audio {
         args.extend(["-c:a".into(), "copy".into()]);
     } else {
-        // -ac 6 downmixes TrueHD Atmos 7.1 / DTS-X to 5.1 — browsers can't play >6ch AAC
-        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(), "-ac".into(), "6".into()]);
+        // -ac 6 downmixes TrueHD Atmos 7.1 / DTS-X to 5.1 — browsers can't play >6ch AAC.
+        // -af pan forces a safe layout even if the source declares an unusual channel order.
+        args.extend([
+            "-c:a".into(), "aac".into(),
+            "-b:a".into(), "192k".into(),
+            "-ac".into(), "6".into(),
+            "-af".into(), "aresample=async=1:min_hard_comp=0.100000:first_pts=0".into(),
+        ]);
     }
+    // Prevents "Too many packets buffered" when audio/video keyframe intervals differ (common in MKV).
+    args.extend(["-max_muxing_queue_size".into(), "9999".into()]);
     args
 }
 
