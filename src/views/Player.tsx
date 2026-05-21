@@ -520,7 +520,11 @@ export function Player() {
       playedAt: Date.now(),
     });
 
-    if (localFileUrl.startsWith("smb://")) {
+    // ISOs are played via MPV (bluray:// protocol); skip the SMB cache download
+    // since the file may be tens of GB and MPV can access smb:// paths directly.
+    if (localFileUrl.toLowerCase().endsWith(".iso")) {
+      setEffectiveLocalPath(localFileUrl);
+    } else if (localFileUrl.startsWith("smb://")) {
       setSmbLoading(true);
       setEffectiveLocalPath(null);
       invoke<string>("fetch_smb_to_cache", { url: localFileUrl })
@@ -803,7 +807,9 @@ export function Player() {
 
     if (!effectiveLocalPath) return null;
 
-    if (useMpvMode) {
+    const isIso = effectiveLocalPath.toLowerCase().endsWith(".iso");
+
+    if (useMpvMode || isIso) {
       const _histId = `local-${localFileUrl}`;
       currentHistoryId.current = _histId;
       const _saved = history.find(h => h.id === _histId);
@@ -816,8 +822,12 @@ export function Player() {
           url={effectiveLocalPath}
           startSecs={mpvStart}
           title={localFileTitle || effectiveLocalPath.split(/[\\/]/).pop() || effectiveLocalPath}
-          subtitle="Archivo local · MPV"
-          onBack={() => { setUseMpvMode(false); }}
+          subtitle={isIso ? "Blu-ray ISO · MPV" : "Archivo local · MPV"}
+          accentColor={isIso ? "#3b82f6" : undefined}
+          onBack={() => {
+            if (isIso) { setLocalFileUrl(null); setView("folders"); }
+            else { setUseMpvMode(false); }
+          }}
           onTimeUpdate={(pos, dur) => {
             currentTimeRef.current = pos;
             if (dur > 0) durationRef.current = dur;
@@ -827,7 +837,8 @@ export function Player() {
           onClose={(finalPos) => {
             if (currentHistoryId.current && durationRef.current > 0)
               updateHistoryProgress(currentHistoryId.current, finalPos, durationRef.current);
-            setUseMpvMode(false);
+            if (isIso) { setLocalFileUrl(null); setView("folders"); }
+            else { setUseMpvMode(false); }
           }}
         />
       );

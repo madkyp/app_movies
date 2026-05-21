@@ -215,18 +215,31 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
     #[cfg(windows)]
     let ipc_arg = r"--input-ipc-server=\\.\pipe\streamdeck-mpv".to_string();
 
-    let mut args: Vec<String> = vec![
-        url,
-        ipc_arg,
-        title_arg,
-        "--force-window=yes".into(),
-        "--no-terminal".into(),
-        "--no-ytdl".into(),
-        "--cache=yes".into(),
-        "--cache-secs=120".into(),
-        "--demuxer-max-bytes=500MiB".into(),
-        "--network-timeout=30".into(),
-    ];
+    // Blu-ray ISOs need `bluray:// --bluray-device=<path>` instead of a direct URL.
+    let is_iso = url.to_lowercase().ends_with(".iso");
+    let mut args: Vec<String> = if is_iso {
+        vec![
+            "bluray://".into(),
+            format!("--bluray-device={}", url),
+            ipc_arg,
+            title_arg,
+            "--force-window=yes".into(),
+            "--no-terminal".into(),
+        ]
+    } else {
+        vec![
+            url,
+            ipc_arg,
+            title_arg,
+            "--force-window=yes".into(),
+            "--no-terminal".into(),
+            "--no-ytdl".into(),
+            "--cache=yes".into(),
+            "--cache-secs=120".into(),
+            "--demuxer-max-bytes=500MiB".into(),
+            "--network-timeout=30".into(),
+        ]
+    };
     if start_secs > 0.5 {
         args.push(format!("--start={}", start_str));
     }
@@ -1865,6 +1878,7 @@ pub struct SavedFolder {
 
 const MEDIA_EXTS: &[&str] = &[
     "mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "webm", "m2ts", "mpg", "mpeg",
+    "iso",
     "flac", "mp3", "aac", "m4a", "ogg", "wav", "opus",
 ];
 
