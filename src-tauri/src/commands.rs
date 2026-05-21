@@ -201,7 +201,6 @@ static MPV_IPC_CHILD: tokio::sync::Mutex<Option<tokio::process::Child>> =
 
 struct IsoMount {
     loop_dev: String,
-    mount_point: String,
 }
 
 static ISO_MOUNT: tokio::sync::Mutex<Option<IsoMount>> =
@@ -263,7 +262,7 @@ async fn mount_iso_udisks(iso_path: &str) -> Result<String, String> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("No se pudo parsear el punto de montaje: {}", mnt_out.trim()))?;
 
-    *ISO_MOUNT.lock().await = Some(IsoMount { loop_dev, mount_point: mount_point.clone() });
+    *ISO_MOUNT.lock().await = Some(IsoMount { loop_dev });
     Ok(mount_point)
 }
 
@@ -388,7 +387,7 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
         ));
     }
 
-    let mut args: Vec<String> = if is_iso {
+    let args: Vec<String> = if is_iso {
         let mut v = vec![
             "bluray://".into(),
             format!("--bluray-device={}", url),
@@ -421,7 +420,7 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
             *MPV_IPC_CHILD.lock().await = Some(child);
             return Ok(());
         }
-        Err((code, stderr)) if is_iso && stderr.contains("udfread") => {
+        Err((_code, stderr)) if is_iso && stderr.contains("udfread") => {
             // Blu-ray UDF errors → this is a DVD-Video ISO, retry with dvd://
             #[cfg(unix)]
             let _ = tokio::fs::remove_file(MPV_IPC_SOCK).await;
@@ -441,7 +440,7 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
                     *MPV_IPC_CHILD.lock().await = Some(child);
                     Ok(())
                 }
-                Err((dvd_code, dvd_stderr)) => {
+                Err((_dvd_code, _dvd_stderr)) => {
                     // Both bluray:// and dvd:// failed with udfread errors.
                     // Last resort: mount the ISO via udisksctl (no root) and let
                     // Mount the ISO and play the largest .m2ts directly — bypasses
@@ -494,10 +493,8 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
                     }
 
                     #[cfg(not(unix))]
-                    Err(format!(
-                        "No se pudo abrir el ISO (Blu-ray código {code}, DVD código {dvd_code}).\n\
-                         Usa MakeMKV para convertir el ISO a MKV y reprodúcelo directamente.",
-                    ))
+                    Err("No se pudo abrir el ISO como Blu-ray ni como DVD.\n\
+                         Usa MakeMKV para convertir el ISO a MKV y reprodúcelo directamente.".into())
                 }
             }
         }
