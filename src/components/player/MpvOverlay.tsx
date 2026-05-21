@@ -23,11 +23,13 @@ interface Props {
   onBack: () => void;
   onTimeUpdate?: (pos: number, duration: number) => void;
   onClose?: (finalPos: number) => void;
+  /** When true, an unexpected MPV exit shows the "closed" UI instead of calling onClose automatically */
+  noAutoClose?: boolean;
 }
 
 export function MpvOverlay({
   url, startSecs, title, subtitle, accentColor = "#8b5cf6",
-  onBack, onTimeUpdate, onClose,
+  onBack, onTimeUpdate, onClose, noAutoClose = false,
 }: Props) {
   const [launching, setLaunching] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,9 @@ export function MpvOverlay({
           const alive = await invoke<boolean>("mpv_ipc_alive");
           if (!alive) {
             stopPolling();
-            onClose?.(currentTimeRef.current);
+            if (!noAutoClose) {
+              onClose?.(currentTimeRef.current);
+            }
             setMpvGone(true);
           }
         }, 3000);

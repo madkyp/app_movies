@@ -824,6 +824,7 @@ export function Player() {
           title={localFileTitle || effectiveLocalPath.split(/[\\/]/).pop() || effectiveLocalPath}
           subtitle={isIso ? "Blu-ray ISO · MPV" : "Archivo local · MPV"}
           accentColor={isIso ? "#3b82f6" : undefined}
+          noAutoClose={isIso}
           onBack={() => {
             if (isIso) { setLocalFileUrl(null); setView("folders"); }
             else { setUseMpvMode(false); }

@@ -216,6 +216,15 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
     let ipc_arg = r"--input-ipc-server=\\.\pipe\streamdeck-mpv".to_string();
 
     let is_iso = url.to_lowercase().ends_with(".iso");
+
+    // libbluray cannot read network paths — reject early with a clear message
+    if is_iso && url.to_lowercase().starts_with("smb://") {
+        let host = url.trim_start_matches("smb://").split('/').next().unwrap_or("servidor");
+        return Err(format!(
+            "Los Blu-ray ISO en carpetas de red no son compatibles: libbluray solo puede leer archivos locales.\n\nSolución: monta la carpeta SMB localmente y accede desde 'Carpeta local':\n  sudo mount -t cifs //{host}/carpeta /mnt/punto -o uid=$(id -u),gid=$(id -g)\n\nLuego busca el ISO desde la opción 'Carpeta local' apuntando a /mnt/punto"
+        ));
+    }
+
     let mut args: Vec<String> = if is_iso {
         // ISOs: try bluray:// first; dvd:// is attempted as fallback via --dvd-device hint.
         // libbluray must be installed (pacman -S libbluray).
@@ -300,6 +309,25 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
                     "MPV no respondió (código {}).\n{}{}",
                     status.code().unwrap_or(-1),
                     err.trim(),
+                    hint,
+                ));
+            }
+        } else {
+            // Socket appeared — but mpv creates the socket before opening the media.
+            // Wait 1.5 s more to catch failures that happen right after socket creation
+            // (e.g. libbluray can't open the device, AACS decryption fails, etc.)
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                let err = tokio::time::timeout(
+                    std::time::Duration::from_millis(500), stderr_task,
+                ).await.unwrap_or_else(|_| Ok(String::new())).unwrap_or_default();
+                let hint = if is_iso {
+                    "\n\nPosibles causas:\n• libbluray no instalado (pacman -S libbluray)\n• El ISO es un DVD, no Blu-ray (prueba con dvd://)\n• El archivo ISO está en una ruta de red no soportada por libbluray"
+                } else { "" };
+                return Err(format!(
+                    "MPV salió al abrir el archivo (código {}).\n{}{}",
+                    status.code().unwrap_or(-1),
+                    err.lines().take(8).collect::<Vec<_>>().join("\n"),
                     hint,
                 ));
             }
