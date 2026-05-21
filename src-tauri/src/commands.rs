@@ -197,6 +197,89 @@ const MPV_IPC_SOCK: &str = "/tmp/streamdeck-mpv.sock";
 static MPV_IPC_CHILD: tokio::sync::Mutex<Option<tokio::process::Child>> =
     tokio::sync::Mutex::const_new(None);
 
+// ─── ISO loop-mount helpers (Linux / udisksctl, no root needed) ───────────────
+
+struct IsoMount {
+    loop_dev: String,
+    mount_point: String,
+}
+
+static ISO_MOUNT: tokio::sync::Mutex<Option<IsoMount>> =
+    tokio::sync::Mutex::const_new(None);
+
+/// Mount a local ISO file via udisksctl (no root required) and return the mount point path.
+/// Stores the loop device so `unmount_iso()` can clean up later.
+#[cfg(unix)]
+async fn mount_iso_udisks(iso_path: &str) -> Result<String, String> {
+    // Step 1: create loop device
+    let setup = tokio::process::Command::new("udisksctl")
+        .args(["loop-setup", "--file", iso_path, "--no-user-interaction"])
+        .output().await
+        .map_err(|e| format!("udisksctl no disponible: {e}"))?;
+
+    if !setup.status.success() {
+        return Err(format!(
+            "udisksctl loop-setup falló:\n{}",
+            String::from_utf8_lossy(&setup.stderr).trim()
+        ));
+    }
+
+    // Output: "Mapped file '...' as /dev/loop0."
+    let setup_out = String::from_utf8_lossy(&setup.stdout);
+    let loop_dev = setup_out.split_whitespace()
+        .last()
+        .map(|s| s.trim_end_matches('.').trim())
+        .filter(|s| s.starts_with("/dev/loop"))
+        .ok_or_else(|| format!("No se pudo identificar el dispositivo loop: {}", setup_out.trim()))?
+        .to_string();
+
+    // Step 2: mount the loop device
+    let mnt = tokio::process::Command::new("udisksctl")
+        .args(["mount", "--block-device", &loop_dev, "--no-user-interaction"])
+        .output().await
+        .unwrap_or_else(|_| std::process::Output {
+            status: std::process::ExitStatus::default(),
+            stdout: vec![],
+            stderr: b"spawn failed".to_vec(),
+        });
+
+    if !mnt.status.success() {
+        let _ = tokio::process::Command::new("udisksctl")
+            .args(["loop-delete", "--block-device", &loop_dev, "--no-user-interaction"])
+            .output().await;
+        return Err(format!(
+            "No se pudo montar el ISO ({}): {}",
+            loop_dev,
+            String::from_utf8_lossy(&mnt.stderr).trim()
+        ));
+    }
+
+    // Output: "Mounted /dev/loop0 at /run/media/user/LABEL."
+    let mnt_out = String::from_utf8_lossy(&mnt.stdout);
+    let mount_point = mnt_out
+        .split(" at ")
+        .nth(1)
+        .map(|s| s.trim().trim_end_matches('.').trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("No se pudo parsear el punto de montaje: {}", mnt_out.trim()))?;
+
+    *ISO_MOUNT.lock().await = Some(IsoMount { loop_dev, mount_point: mount_point.clone() });
+    Ok(mount_point)
+}
+
+/// Unmount the ISO and delete the loop device created by `mount_iso_udisks`.
+async fn unmount_iso() {
+    let m = ISO_MOUNT.lock().await.take();
+    if let Some(mount) = m {
+        let _ = tokio::process::Command::new("udisksctl")
+            .args(["unmount", "--block-device", &mount.loop_dev, "--no-user-interaction"])
+            .output().await;
+        let _ = tokio::process::Command::new("udisksctl")
+            .args(["loop-delete", "--block-device", &mount.loop_dev, "--no-user-interaction"])
+            .output().await;
+    }
+}
+
 /// Drains the stderr JoinHandle with a short timeout, returning whatever was collected.
 async fn drain_stderr(handle: &mut Option<tokio::task::JoinHandle<String>>) -> String {
     let h = handle.take().unwrap_or_else(|| tokio::spawn(async { String::new() }));
@@ -326,8 +409,8 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
             let mut dvd_args = vec![
                 "dvd://".into(),
                 format!("--dvd-device={}", url),
-                ipc_arg,
-                title_arg,
+                ipc_arg.clone(),
+                title_arg.clone(),
                 "--force-window=yes".into(),
                 "--no-terminal".into(),
             ];
@@ -338,16 +421,41 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
                     *MPV_IPC_CHILD.lock().await = Some(child);
                     Ok(())
                 }
-                Err((dvd_code, dvd_stderr)) => Err(format!(
-                    "No se pudo abrir el ISO ni como Blu-ray ni como DVD.\n\
-                     Blu-ray (código {code}): {}\n\
-                     DVD (código {dvd_code}): {}\n\n\
-                     Posibles causas:\n\
-                     • ISO cifrado con AACS/BD+ (necesita claves de descifrado)\n\
-                     • Archivo ISO dañado o formato no estándar",
-                    stderr.lines().take(3).collect::<Vec<_>>().join(" | "),
-                    dvd_stderr.lines().take(3).collect::<Vec<_>>().join(" | "),
-                )),
+                Err((dvd_code, dvd_stderr)) => {
+                    // Both bluray:// and dvd:// failed with udfread errors.
+                    // Last resort: mount the ISO via udisksctl (no root) and let
+                    // libbluray read from the mounted directory, bypassing udfread.
+                    #[cfg(unix)]
+                    match mount_iso_udisks(&url).await {
+                        Ok(mount_point) => {
+                            let mut mount_args = vec![
+                                "bluray://".into(),
+                                format!("--bluray-device={}", mount_point),
+                                ipc_arg,
+                                title_arg,
+                                "--force-window=yes".into(),
+                                "--no-terminal".into(),
+                            ];
+                            if start_secs > 0.5 { mount_args.push(format!("--start={}", start_str)); }
+
+                            match try_mpv_args(mount_args).await {
+                                Ok(child) => {
+                                    *MPV_IPC_CHILD.lock().await = Some(child);
+                                    return Ok(());
+                                }
+                                Err(_) => { unmount_iso().await; }
+                            }
+                        }
+                        Err(_) => {} // udisksctl unavailable — fall through to error
+                    }
+
+                    Err(format!(
+                        "No se pudo abrir el ISO (Blu-ray código {code}, DVD código {dvd_code}).\n\
+                         Si es un backup de MakeMKV, asegúrate de que udisksctl está instalado:\n\
+                           pacman -S udisks2\n\n\
+                         Alternativa: usa MakeMKV para convertir el ISO a MKV y reprodúcelo directamente.",
+                    ))
+                }
             }
         }
         Err((code, stderr)) => {
@@ -475,6 +583,7 @@ pub async fn mpv_ipc_quit() -> Result<(), String> {
     if let Some(mut c) = g.take() { c.kill().await.ok(); }
     #[cfg(unix)]
     let _ = tokio::fs::remove_file(MPV_IPC_SOCK).await;
+    unmount_iso().await;
     Ok(())
 }
 
@@ -483,7 +592,7 @@ pub async fn mpv_ipc_alive() -> bool {
     let mut g = MPV_IPC_CHILD.lock().await;
     if let Some(child) = g.as_mut() {
         match child.try_wait() {
-            Ok(Some(_)) => { *g = None; false }
+            Ok(Some(_)) => { *g = None; drop(g); unmount_iso().await; false }
             Ok(None) => true,
             Err(_) => false,
         }
