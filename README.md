@@ -18,6 +18,8 @@ Construida con **Tauri 2** (Rust) + **React** + **TypeScript**.
   - [Integración Plex](#integración-plex)
   - [Mis Carpetas — NAS y red local](#mis-carpetas--nas-y-red-local)
   - [Reproductor integrado](#reproductor-integrado)
+  - [Reproductor MPV (máxima calidad)](#reproductor-mpv-máxima-calidad)
+  - [Blu-ray ISO](#blu-ray-iso)
   - [Subtítulos externos](#subtítulos-externos)
   - [Historial](#historial)
 - [Plataformas](#plataformas)
@@ -85,6 +87,15 @@ Añade carpetas locales o recursos de red via **SMB**:
 
 Navega la estructura de directorios con breadcrumb. Los archivos del NAS se cachean en `~/.cache/streamdeck/smb/` (no en RAM) y se eliminan automáticamente al salir del reproductor y al iniciar la app, evitando que ocupen espacio en disco de forma permanente.
 
+### Blu-ray ISO
+
+Los archivos `.iso` aparecen en el navegador de carpetas y se reproducen automáticamente con mpv usando el protocolo `bluray://` y `libbluray`. Se requiere `libbluray` instalado en el sistema (`pacman -S libbluray` en Arch).
+
+> **Nota**: los ISOs deben estar en una carpeta **local** o montada localmente. libbluray no puede leer rutas de red `smb://` directamente — si el ISO está en un NAS, monta la carpeta via CIFS primero y accede desde «Carpeta local»:
+> ```bash
+> sudo mount -t cifs //servidor/carpeta /mnt/punto -o uid=$(id -u),gid=$(id -g)
+> ```
+
 ### Reproductor integrado
 
 Player con controles completos para las tres fuentes (torrent, Plex y archivos locales/NAS):
@@ -98,7 +109,22 @@ Player con controles completos para las tres fuentes (torrent, Plex y archivos l
 | Silenciar | `M` |
 | Seek preciso | Barra de progreso (−30s / −10s / +10s / +30s) |
 
-Selector de **pista de audio** para archivos con varios idiomas. Opción de abrir en **mpv** como reproductor externo. El audio multicanal (TrueHD Atmos 7.1, DTS-X) se mezcla automáticamente a 5.1 para garantizar compatibilidad con el navegador.
+Selector de **pista de audio** para archivos con varios idiomas. El audio multicanal (TrueHD Atmos 7.1, DTS-X) se mezcla automáticamente a 5.1 para garantizar compatibilidad con el navegador.
+
+### Reproductor MPV (máxima calidad)
+
+Todos los modos de reproducción (torrent, Plex y archivos locales) incluyen un botón **MPV** que lanza el vídeo en [mpv](https://mpv.io/) con máxima calidad: `vo=gpu-next`, Vulkan, `ewa_lanczossharp`, deband y la configuración que tengas en `~/.config/mpv/mpv.conf`.
+
+La app mantiene el control mediante un **overlay IPC** que permanece visible mientras mpv está abierto:
+
+| Acción | Control |
+|--------|---------|
+| Play / Pausa | Botón en el overlay |
+| −30s / −10s / +10s / +30s | Botones de salto rápido |
+| Seek preciso | Barra de progreso del overlay |
+| Cerrar MPV | Botón «Volver» |
+
+El progreso se sincroniza con el historial de la app cada segundo. Si cierras la ventana de mpv desde fuera, el overlay lo detecta y muestra una pantalla de aviso en lugar de navegar silenciosamente.
 
 ### Subtítulos externos
 
