@@ -197,6 +197,66 @@ const MPV_IPC_SOCK: &str = "/tmp/streamdeck-mpv.sock";
 static MPV_IPC_CHILD: tokio::sync::Mutex<Option<tokio::process::Child>> =
     tokio::sync::Mutex::const_new(None);
 
+/// Drains the stderr JoinHandle with a short timeout, returning whatever was collected.
+async fn drain_stderr(handle: &mut Option<tokio::task::JoinHandle<String>>) -> String {
+    let h = handle.take().unwrap_or_else(|| tokio::spawn(async { String::new() }));
+    tokio::time::timeout(std::time::Duration::from_millis(500), h)
+        .await.unwrap_or_else(|_| Ok(String::new())).unwrap_or_default()
+}
+
+/// Spawns mpv with `args`, waits up to 3 s for the IPC socket, then 1.5 s more
+/// to catch post-socket failures. Returns the live Child or (exit_code, stderr).
+async fn try_mpv_args(args: Vec<String>) -> Result<tokio::process::Child, (i32, String)> {
+    let mut child = proc_cmd(mpv_bin())
+        .args(&args)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| (-1, format!("No se pudo lanzar mpv: {e}")))?;
+
+    let mut stderr_handle: Option<tokio::task::JoinHandle<String>> = {
+        let pipe = child.stderr.take().unwrap();
+        Some(tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut buf = String::new();
+            let _ = tokio::io::BufReader::new(pipe).read_to_string(&mut buf).await;
+            buf
+        }))
+    };
+
+    #[cfg(unix)]
+    {
+        let mut socket_ready = false;
+        for _ in 0..30 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if std::path::Path::new(MPV_IPC_SOCK).exists() {
+                socket_ready = true;
+                break;
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                let err = drain_stderr(&mut stderr_handle).await;
+                return Err((status.code().unwrap_or(-1), err));
+            }
+        }
+        if !socket_ready {
+            if let Ok(Some(status)) = child.try_wait() {
+                let err = drain_stderr(&mut stderr_handle).await;
+                return Err((status.code().unwrap_or(-1), err));
+            }
+        } else {
+            // Socket appeared — mpv creates it before opening media, so wait a bit more.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                let err = drain_stderr(&mut stderr_handle).await;
+                return Err((status.code().unwrap_or(-1), err));
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+    Ok(child)
+}
+
 #[tauri::command]
 pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Result<(), String> {
     // Kill any running instance first
@@ -221,27 +281,26 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
     if is_iso && url.to_lowercase().starts_with("smb://") {
         let host = url.trim_start_matches("smb://").split('/').next().unwrap_or("servidor");
         return Err(format!(
-            "Los Blu-ray ISO en carpetas de red no son compatibles: libbluray solo puede leer archivos locales.\n\nSolución: monta la carpeta SMB localmente y accede desde 'Carpeta local':\n  sudo mount -t cifs //{host}/carpeta /mnt/punto -o uid=$(id -u),gid=$(id -g)\n\nLuego busca el ISO desde la opción 'Carpeta local' apuntando a /mnt/punto"
+            "Los ISO en carpetas de red no son compatibles: libbluray solo puede leer archivos locales.\n\nSolución: monta la carpeta SMB localmente y accede desde 'Carpeta local':\n  sudo mount -t cifs //{host}/carpeta /mnt/punto -o uid=$(id -u),gid=$(id -g)\n\nLuego busca el ISO desde la opción 'Carpeta local' apuntando a /mnt/punto"
         ));
     }
 
     let mut args: Vec<String> = if is_iso {
-        // ISOs: try bluray:// first; dvd:// is attempted as fallback via --dvd-device hint.
-        // libbluray must be installed (pacman -S libbluray).
-        vec![
+        let mut v = vec![
             "bluray://".into(),
             format!("--bluray-device={}", url),
-            format!("--dvd-device={}", url),   // hint for DVD ISOs (VIDEO_TS)
-            ipc_arg,
-            title_arg,
+            ipc_arg.clone(),
+            title_arg.clone(),
             "--force-window=yes".into(),
             "--no-terminal".into(),
-        ]
+        ];
+        if start_secs > 0.5 { v.push(format!("--start={}", start_str)); }
+        v
     } else {
-        vec![
-            url,
-            ipc_arg,
-            title_arg,
+        let mut v = vec![
+            url.clone(),
+            ipc_arg.clone(),
+            title_arg.clone(),
             "--force-window=yes".into(),
             "--no-terminal".into(),
             "--no-ytdl".into(),
@@ -249,95 +308,58 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
             "--cache-secs=120".into(),
             "--demuxer-max-bytes=500MiB".into(),
             "--network-timeout=30".into(),
-        ]
-    };
-    if start_secs > 0.5 {
-        args.push(format!("--start={}", start_str));
-    }
-
-    let mut child = proc_cmd(mpv_bin())
-        .args(&args)
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("No se pudo lanzar mpv: {e}"))?;
-
-    // Capture stderr in a detached task so we can surface it on early exit.
-    let stderr_task = {
-        let pipe = child.stderr.take().unwrap();
-        tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-            let mut buf = String::new();
-            let _ = tokio::io::BufReader::new(pipe).read_to_string(&mut buf).await;
-            buf
-        })
+        ];
+        if start_secs > 0.5 { v.push(format!("--start={}", start_str)); }
+        v
     };
 
-    // Wait up to 3 s for the IPC socket, checking for early mpv exit each tick.
-    #[cfg(unix)]
-    {
-        let mut socket_ready = false;
-        for _ in 0..30 {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            if std::path::Path::new(MPV_IPC_SOCK).exists() {
-                socket_ready = true;
-                break;
-            }
-            if let Ok(Some(status)) = child.try_wait() {
-                let err = tokio::time::timeout(
-                    std::time::Duration::from_millis(500), stderr_task,
-                ).await.unwrap_or_else(|_| Ok(String::new())).unwrap_or_default();
-                let hint = if is_iso {
-                    "\n\nPara Blu-ray ISOs necesitas libbluray:\n  pacman -S libbluray\n\nSi es un DVD ISO prueba a reproducirlo directamente desde mpv."
-                } else { "" };
-                return Err(format!(
-                    "MPV terminó inesperadamente (código {}).\n{}{}",
-                    status.code().unwrap_or(-1),
-                    err.lines().take(6).collect::<Vec<_>>().join("\n"),
-                    hint,
-                ));
+    match try_mpv_args(args).await {
+        Ok(child) => {
+            *MPV_IPC_CHILD.lock().await = Some(child);
+            return Ok(());
+        }
+        Err((code, stderr)) if is_iso && stderr.contains("udfread") => {
+            // Blu-ray UDF errors → this is a DVD-Video ISO, retry with dvd://
+            #[cfg(unix)]
+            let _ = tokio::fs::remove_file(MPV_IPC_SOCK).await;
+
+            let mut dvd_args = vec![
+                "dvd://".into(),
+                format!("--dvd-device={}", url),
+                ipc_arg,
+                title_arg,
+                "--force-window=yes".into(),
+                "--no-terminal".into(),
+            ];
+            if start_secs > 0.5 { dvd_args.push(format!("--start={}", start_str)); }
+
+            match try_mpv_args(dvd_args).await {
+                Ok(child) => {
+                    *MPV_IPC_CHILD.lock().await = Some(child);
+                    Ok(())
+                }
+                Err((dvd_code, dvd_stderr)) => Err(format!(
+                    "No se pudo abrir el ISO ni como Blu-ray ni como DVD.\n\
+                     Blu-ray (código {code}): {}\n\
+                     DVD (código {dvd_code}): {}\n\n\
+                     Posibles causas:\n\
+                     • ISO cifrado con AACS/BD+ (necesita claves de descifrado)\n\
+                     • Archivo ISO dañado o formato no estándar",
+                    stderr.lines().take(3).collect::<Vec<_>>().join(" | "),
+                    dvd_stderr.lines().take(3).collect::<Vec<_>>().join(" | "),
+                )),
             }
         }
-        if !socket_ready {
-            if let Ok(Some(status)) = child.try_wait() {
-                let err = tokio::time::timeout(
-                    std::time::Duration::from_millis(500), stderr_task,
-                ).await.unwrap_or_else(|_| Ok(String::new())).unwrap_or_default();
-                let hint = if is_iso {
-                    "\n\nPara Blu-ray ISOs necesitas libbluray:\n  pacman -S libbluray"
-                } else { "" };
-                return Err(format!(
-                    "MPV no respondió (código {}).\n{}{}",
-                    status.code().unwrap_or(-1),
-                    err.trim(),
-                    hint,
-                ));
-            }
-        } else {
-            // Socket appeared — but mpv creates the socket before opening the media.
-            // Wait 1.5 s more to catch failures that happen right after socket creation
-            // (e.g. libbluray can't open the device, AACS decryption fails, etc.)
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            if let Ok(Some(status)) = child.try_wait() {
-                let err = tokio::time::timeout(
-                    std::time::Duration::from_millis(500), stderr_task,
-                ).await.unwrap_or_else(|_| Ok(String::new())).unwrap_or_default();
-                let hint = if is_iso {
-                    "\n\nPosibles causas:\n• libbluray no instalado (pacman -S libbluray)\n• El ISO es un DVD, no Blu-ray (prueba con dvd://)\n• El archivo ISO está en una ruta de red no soportada por libbluray"
-                } else { "" };
-                return Err(format!(
-                    "MPV salió al abrir el archivo (código {}).\n{}{}",
-                    status.code().unwrap_or(-1),
-                    err.lines().take(8).collect::<Vec<_>>().join("\n"),
-                    hint,
-                ));
-            }
+        Err((code, stderr)) => {
+            let hint = if is_iso {
+                "\n\nPosibles causas:\n• libbluray no instalado (pacman -S libbluray)\n• ISO cifrado con AACS (necesita claves)\n• Archivo ISO dañado"
+            } else { "" };
+            Err(format!(
+                "MPV salió al abrir el archivo (código {code}).\n{}{hint}",
+                stderr.lines().take(8).collect::<Vec<_>>().join("\n"),
+            ))
         }
     }
-    #[cfg(not(unix))]
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-
-    *MPV_IPC_CHILD.lock().await = Some(child);
-    Ok(())
 }
 
 /// Send a JSON command to mpv's IPC socket and return the response object.
