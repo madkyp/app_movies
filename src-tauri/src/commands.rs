@@ -177,13 +177,169 @@ pub async fn open_in_mpv(url: String, title: String) -> Result<(), String> {
             "--demuxer-max-back-bytes=50MiB",
             "--force-seekable=yes",
             "--network-timeout=30",
-            "--no-ytdl",        // don't invoke yt-dlp on localhost URLs
+            "--no-ytdl",
             "--start=0",
             "--really-quiet",
         ])
         .spawn()
         .map_err(|e| format!("No se pudo lanzar mpv: {e}"))?;
     Ok(())
+}
+
+// ─── MPV IPC Player ────────────────────────────────────────────────────────────
+// Launches mpv with --input-ipc-server so the app can control it via JSON commands.
+// mpv reads ~/.config/mpv/mpv.conf automatically, applying all quality settings
+// (vo=gpu-next, ewa_lanczossharp, deband, vulkan-async-compute, etc.).
+
+#[cfg(unix)]
+const MPV_IPC_SOCK: &str = "/tmp/streamdeck-mpv.sock";
+
+static MPV_IPC_CHILD: tokio::sync::Mutex<Option<tokio::process::Child>> =
+    tokio::sync::Mutex::const_new(None);
+
+#[tauri::command]
+pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Result<(), String> {
+    // Kill any running instance first
+    {
+        let mut g = MPV_IPC_CHILD.lock().await;
+        if let Some(mut c) = g.take() { c.kill().await.ok(); }
+    }
+    #[cfg(unix)]
+    let _ = tokio::fs::remove_file(MPV_IPC_SOCK).await;
+
+    let start_str = format!("{:.3}", start_secs);
+    let title_arg = format!("--title={}", title);
+
+    #[cfg(unix)]
+    let ipc_arg = format!("--input-ipc-server={}", MPV_IPC_SOCK);
+    #[cfg(windows)]
+    let ipc_arg = r"--input-ipc-server=\\.\pipe\streamdeck-mpv".to_string();
+
+    let mut args: Vec<String> = vec![
+        url,
+        ipc_arg,
+        title_arg,
+        "--force-window=yes".into(),
+        "--no-terminal".into(),
+        "--no-ytdl".into(),
+        "--cache=yes".into(),
+        "--cache-secs=120".into(),
+        "--demuxer-max-bytes=500MiB".into(),
+        "--network-timeout=30".into(),
+    ];
+    if start_secs > 0.5 {
+        args.push(format!("--start={}", start_str));
+    }
+
+    let child = proc_cmd(mpv_bin())
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("No se pudo lanzar mpv: {e}"))?;
+
+    *MPV_IPC_CHILD.lock().await = Some(child);
+
+    // Wait up to 3 s for the socket to appear
+    #[cfg(unix)]
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if std::path::Path::new(MPV_IPC_SOCK).exists() { break; }
+    }
+    #[cfg(not(unix))]
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+    Ok(())
+}
+
+/// Send a JSON command to mpv's IPC socket and return the response object.
+async fn mpv_ipc_send(cmd: serde_json::Value) -> Result<serde_json::Value, String> {
+    #[cfg(unix)]
+    {
+        use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_millis(800),
+            UnixStream::connect(MPV_IPC_SOCK),
+        ).await.map_err(|_| "timeout connecting to mpv socket")?
+         .map_err(|e| format!("socket: {e}"))?;
+
+        let line = serde_json::to_string(&cmd).unwrap() + "\n";
+        tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            stream.write_all(line.as_bytes()),
+        ).await.map_err(|_| "write timeout")?.map_err(|e| format!("{e}"))?;
+
+        // BufReader takes ownership; we're done writing
+        let mut reader = BufReader::new(stream);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(800);
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Err("mpv response timeout".into());
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let mut line = String::new();
+            tokio::time::timeout(remaining, reader.read_line(&mut line))
+                .await.map_err(|_| "read timeout")?.map_err(|e| format!("{e}"))?;
+            if line.is_empty() { break; }
+            let v: serde_json::Value = serde_json::from_str(line.trim()).unwrap_or_default();
+            // Skip async events (they lack an "error" field); return on proper responses
+            if v.get("error").is_some() { return Ok(v); }
+        }
+        Err("no response from mpv".into())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cmd;
+        Err("MPV IPC not yet supported on Windows".into())
+    }
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_get_pos() -> Result<f64, String> {
+    let r = mpv_ipc_send(serde_json::json!({"command": ["get_property", "time-pos"]})).await?;
+    r["data"].as_f64().ok_or_else(|| "no time-pos".into())
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_get_duration() -> Result<f64, String> {
+    let r = mpv_ipc_send(serde_json::json!({"command": ["get_property", "duration"]})).await?;
+    r["data"].as_f64().ok_or_else(|| "no duration".into())
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_set_pause(paused: bool) -> Result<(), String> {
+    mpv_ipc_send(serde_json::json!({"command": ["set_property", "pause", paused]})).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_seek(secs: f64) -> Result<(), String> {
+    mpv_ipc_send(serde_json::json!({"command": ["seek", secs, "absolute"]})).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_quit() -> Result<(), String> {
+    mpv_ipc_send(serde_json::json!({"command": ["quit"]})).await.ok();
+    let mut g = MPV_IPC_CHILD.lock().await;
+    if let Some(mut c) = g.take() { c.kill().await.ok(); }
+    #[cfg(unix)]
+    let _ = tokio::fs::remove_file(MPV_IPC_SOCK).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mpv_ipc_alive() -> bool {
+    let mut g = MPV_IPC_CHILD.lock().await;
+    if let Some(child) = g.as_mut() {
+        match child.try_wait() {
+            Ok(Some(_)) => { *g = None; false }
+            Ok(None) => true,
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
 }
 
 // ─── Torrent Source Commands ───────────────────────────────────────────────────

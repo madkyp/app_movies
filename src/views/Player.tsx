@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Server, FolderOpen, Subtitles, CheckCircle2, Circle, ChevronRight } from "lucide-react";
+import { ArrowLeft, Wifi, Users, HardDrive, Loader2, AlertCircle, Play, Pause, X, Calendar, Volume2, VolumeX, Maximize2, ChevronUp, FileText, Subtitles, CheckCircle2, Circle, ChevronRight } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useSeasonEpisodes } from "../hooks/useTmdb";
 import { cn, TMDB_IMAGE_BASE } from "../lib/utils";
 import type { TorrentSource, Episode, SubtitleResult } from "../types";
+import { MpvOverlay } from "../components/player/MpvOverlay";
 
 function fmtTimestamp(s: number): string {
   if (!isFinite(s) || s < 0) return "0:00";
@@ -255,8 +256,6 @@ export function Player() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);       // Plex player
   const [isStreamBuffering, setIsStreamBuffering] = useState(false); // Torrent player
-  const [plexVideoError, setPlexVideoError] = useState(false);
-  const [localVideoError, setLocalVideoError] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -285,8 +284,6 @@ export function Player() {
   const pendingResumeAt = useRef(0); // for torrent: seek target after tracksReady
   const seekFn = useRef<((t: number) => void) | null>(null);
   const isBufferingRef = useRef(false); // for stable access in video onError handlers
-  const plexRetries = useRef(0);        // retry count when Plex seek errors
-  const localRetries = useRef(0);       // retry count when local file seek errors
   const torrentRetries = useRef(0);     // retry count when torrent video errors on startup
 
   // Resume toast: non-null when we auto-resumed from history
@@ -454,7 +451,6 @@ export function Player() {
   useEffect(() => {
     if (plexDirectUrl) {
       setIsBuffering(true);
-      setPlexVideoError(false);
       setResumeToast(null);
       if (plexDirectDuration > 0) setDuration(plexDirectDuration);
 
@@ -489,7 +485,6 @@ export function Player() {
     setSelectedSub(-1);
     setCurrentTime(0);
     setDuration(0);
-    setLocalVideoError(false);
     setSmbError(null);
     setResumeToast(null);
 
@@ -799,487 +794,76 @@ export function Player() {
 
     if (!effectiveLocalPath) return null;
 
-    const localPlayUrl = [
-      `http://127.0.0.1:7777/play/local`,
-      `?path=${encodeURIComponent(effectiveLocalPath)}`,
-      `&audio=${selectedAudio}`,
-      startOffset > 0.5 ? `&start=${Math.floor(startOffset)}` : "",
-    ].join("");
-
-    const fmtTimeLocal = (s: number) => {
-      if (!isFinite(s) || s < 0) return "0:00";
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const sec = Math.floor(s % 60);
-      return h > 0
-        ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
-        : `${m}:${String(sec).padStart(2, "0")}`;
-    };
-
-    const doLocalSeek = (target: number) => {
-      const t = Math.max(0, duration > 0 ? Math.min(target, duration) : target);
-      const v = videoRef.current;
-      if (!v) return;
-      const videoT = t - startOffset;
-      if (videoT >= 0) {
-        const buf = v.buffered;
-        for (let i = 0; i < buf.length; i++) {
-          if (videoT >= buf.start(i) && videoT <= buf.end(i) + 2) {
-            v.currentTime = videoT;
-            setCurrentTime(t);
-            return;
-          }
-        }
-      }
-      localRetries.current = 0;
-      setIsBuffering(true);
-      setStartOffset(Math.floor(t));
-      setCurrentTime(t);
-    };
-    seekFn.current = doLocalSeek;
-
-    const displayTime = isSeeking ? seekValue : currentTime;
-    const pct = duration > 0 ? Math.min(displayTime / duration, 1) : 0;
+    // Compute resume position from history directly (avoids async startOffset state lag)
+    const _localHistId = `local-${localFileUrl}`;
+    currentHistoryId.current = _localHistId;
+    const _localSaved = history.find(h => h.id === _localHistId);
+    const localMpvStart =
+      (_localSaved?.progressSecs ?? 0) > 30 &&
+      (_localSaved?.durationSecs ?? 0) > 0 &&
+      (_localSaved?.progressSecs ?? 0) < (_localSaved?.durationSecs ?? 1) * 0.9
+        ? (_localSaved?.progressSecs ?? 0) : 0;
 
     return (
-      <div className="flex-1 flex flex-col bg-black overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2 bg-bg-primary/90 border-b border-border text-xs text-text-secondary flex-shrink-0">
-          <button
-            onClick={() => { setLocalFileUrl(null); setView("folders"); setStartOffset(0); }}
-            className="btn-ghost py-1 px-2 text-xs"
-          >
-            <ArrowLeft size={13} /> Volver
-          </button>
-          <span className="text-white font-medium truncate flex-1">{localFileTitle}</span>
-          <span className="text-accent/70 text-[10px] flex items-center gap-1">
-            <FolderOpen size={11} /> Archivo local
-          </span>
-        </div>
-
-        <div className="flex-1 relative bg-black overflow-hidden">
-          {resumeToast && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-bg-card/95 border border-border rounded-xl px-4 py-2 flex items-center gap-3 shadow-xl backdrop-blur-sm">
-              <Play size={13} className="text-accent flex-shrink-0" />
-              <span className="text-white text-xs">Reanudando desde <strong>{fmtTimestamp(resumeToast.at)}</strong></span>
-              <button onClick={() => { setStartOffset(0); setCurrentTime(0); setResumeToast(null); }} className="text-text-muted hover:text-white text-xs underline">Reiniciar</button>
-              <button onClick={() => setResumeToast(null)} className="text-text-muted hover:text-white ml-1"><X size={12} /></button>
-            </div>
-          )}
-          <video
-            key={`local-${effectiveLocalPath}-${startOffset}-${selectedAudio}`}
-            ref={videoRef}
-            src={localPlayUrl}
-            autoPlay
-            className="w-full h-full cursor-pointer"
-            onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-            onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
-            onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
-            onPause={() => setIsPlaying(false)}
-            onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => { localRetries.current = 0; setIsBuffering(false); }}
-            onError={() => {
-              if (isBufferingRef.current && localRetries.current < 3) {
-                localRetries.current++;
-                setTimeout(() => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.load();
-                  v.play().catch(() => {});
-                }, 1500);
-              } else {
-                localRetries.current = 0;
-                setIsBuffering(false);
-                setLocalVideoError(true);
-              }
-            }}
-            onVolumeChange={() => {
-              if (!videoRef.current) return;
-              setVolume(videoRef.current.volume);
-              setIsMuted(videoRef.current.muted);
-            }}
-          >
-            {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
-          </video>
-
-          {(isBuffering || localVideoError) && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">
-              {localVideoError ? (
-                <>
-                  <AlertCircle size={44} className="text-red-400" />
-                  <p className="text-red-300 text-sm font-semibold">Error reproduciendo el archivo</p>
-                  <p className="text-red-400/70 text-xs">El archivo no es accesible o el formato no es compatible</p>
-                  <button
-                    className="mt-1 px-4 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors pointer-events-auto"
-                    onClick={() => { setLocalVideoError(false); setIsBuffering(true); setStartOffset(0); setCurrentTime(0); }}
-                  >
-                    Reintentar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Loader2 size={48} className="animate-spin text-accent" />
-                  <p className="text-white/70 text-sm">
-                    {localRetries.current > 0 ? `Reconectando… (${localRetries.current}/3)` : "Iniciando reproducción…"}
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent pt-8 pb-2 px-3 flex flex-col gap-1.5">
-            {/* Seek bar */}
-            <div className="relative h-5 flex items-center group">
-              <div className="absolute inset-x-0 h-1 bg-white/20 rounded-full" />
-              <div
-                className="absolute left-0 h-1 bg-accent rounded-full pointer-events-none"
-                style={{ width: `${Math.min(pct * 100, 100)}%` }}
-              />
-              <div
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full shadow pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ left: `${Math.min(pct * 100, 100)}%` }}
-              />
-              <input
-                type="range" min={0}
-                max={duration > 0 ? Math.ceil(duration) : Math.max(Math.ceil(currentTime) + 300, 600)}
-                step={1}
-                value={Math.round(isSeeking ? seekValue : currentTime)}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                onMouseDown={() => { setIsSeeking(true); setSeekValue(currentTime); }}
-                onChange={(e) => setSeekValue(parseFloat(e.target.value))}
-                onMouseUp={(e) => { doLocalSeek(parseFloat((e.target as HTMLInputElement).value)); setIsSeeking(false); }}
-                onTouchEnd={(e) => { doLocalSeek(parseFloat((e.target as HTMLInputElement).value)); setIsSeeking(false); }}
-              />
-            </div>
-
-            {/* Controls row */}
-            <div className="flex items-center gap-2">
-              <button
-                className="text-white hover:text-accent transition-colors p-1"
-                onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-              >
-                {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-              </button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doLocalSeek(currentTime - 30)}>−30s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doLocalSeek(currentTime - 10)}>−10s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doLocalSeek(currentTime + 10)}>+10s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doLocalSeek(currentTime + 30)}>+30s</button>
-              <span className="text-white/80 text-xs font-mono ml-1 tabular-nums">
-                {fmtTimeLocal(currentTime)}{duration > 0 ? ` / ${fmtTimeLocal(duration)}` : ""}
-              </span>
-
-              <div className="flex-1" />
-
-              <button
-                className="text-white/70 hover:text-white transition-colors p-1"
-                onClick={() => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; }}
-              >
-                {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              </button>
-              <input
-                type="range" min={0} max={1} step={0.05} value={isMuted ? 0 : volume}
-                className="w-16 cursor-pointer"
-                style={{ accentColor: "rgb(var(--color-accent, 109 40 217))" }}
-                onChange={(e) => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.volume = parseFloat(e.target.value);
-                  v.muted = parseFloat(e.target.value) === 0;
-                }}
-              />
-
-              {tracks && tracks.audio.length > 1 && (
-                <div className="relative">
-                  <button
-                    className="flex items-center gap-1 text-[11px] text-white/70 hover:text-white px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
-                    onClick={() => { setShowAudioMenu((v) => !v); setShowSubMenu(false); }}
-                  >
-                    <Volume2 size={10} />
-                    {tracks.audio[selectedAudio]?.language ?? "Audio"}
-                    <ChevronUp size={9} className={cn("transition-transform", showAudioMenu ? "" : "rotate-180")} />
-                  </button>
-                  {showAudioMenu && (
-                    <div className="absolute bottom-full right-0 mb-1.5 bg-bg-card border border-border rounded-xl overflow-hidden shadow-2xl z-50 min-w-48">
-                      {tracks.audio.map((t) => (
-                        <button key={t.index}
-                          className={cn("w-full text-left px-3 py-2 text-xs hover:bg-bg-hover transition-colors",
-                            t.index === selectedAudio ? "text-accent font-semibold bg-accent/10" : "text-text-secondary")}
-                          onClick={() => { setSelectedAudio(t.index); setShowAudioMenu(false); }}>
-                          {t.label}<span className="ml-1.5 text-[9px] opacity-40">{t.codec}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button
-                className={cn("flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors",
-                  extSubUrl ? "text-green-400" : "text-white/70 hover:text-white")}
-                onClick={() => setShowSubPanel((v) => !v)}
-                title="Subtítulos externos"
-              >
-                <Subtitles size={12} /> CC
-              </button>
-
-              <button
-                className="text-white/70 hover:text-white transition-colors p-1"
-                onClick={() => {
-                  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-                  else videoRef.current?.requestFullscreen().catch(() => {});
-                }}
-              >
-                <Maximize2 size={15} />
-              </button>
-            </div>
-          </div>
-
-          <SubtitlePanel
-            show={showSubPanel} lang={subLang} results={subResults}
-            loading={subLoading} downloading={subDownloading} error={subError}
-            extSubUrl={extSubUrl}
-            onClose={() => setShowSubPanel(false)}
-            onLangChange={setSubLang}
-            onSearch={handleSubSearch}
-            onSelect={handleSubtitleSelect}
-            onClear={() => { if (extSubUrl) URL.revokeObjectURL(extSubUrl); setExtSubUrl(null); }}
-          />
-        </div>
-      </div>
+      <MpvOverlay
+        url={effectiveLocalPath}
+        startSecs={localMpvStart}
+        title={localFileTitle || effectiveLocalPath.split(/[\\/]/).pop() || effectiveLocalPath}
+        subtitle="Archivo local · MPV"
+        onBack={() => { setLocalFileUrl(null); setView("folders"); }}
+        onTimeUpdate={(pos, dur) => {
+          currentTimeRef.current = pos;
+          if (dur > 0) durationRef.current = dur;
+          if (currentHistoryId.current && durationRef.current > 0 && pos > 5) {
+            updateHistoryProgress(currentHistoryId.current, pos, durationRef.current);
+          }
+        }}
+        onClose={(finalPos) => {
+          if (currentHistoryId.current && durationRef.current > 0) {
+            updateHistoryProgress(currentHistoryId.current, finalPos, durationRef.current);
+          }
+        }}
+      />
     );
+
   }
 
   if (!media) return null;
 
   // ── Plex direct player ───────────────────────────────────────────────────────
   if (plexDirectUrl) {
-    // Build transcoded URL via local ffmpeg proxy (same pipeline as torrent player)
-    const plexQParams = startOffset > 0.5 ? `&start=${startOffset}` : "";
-    const plexTranscodeUrl = `http://127.0.0.1:7777/play/plex?url=${encodeURIComponent(plexDirectUrl)}${plexQParams}`;
-
-    const fmtTimePlex = (s: number) => {
-      if (!isFinite(s) || s < 0) return "0:00";
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const sec = Math.floor(s % 60);
-      return h > 0
-        ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
-        : `${m}:${String(sec).padStart(2, "0")}`;
-    };
-
-    const effectiveDuration = duration > 0 ? duration : plexDirectDuration;
-
-    const doPlexSeek = (target: number) => {
-      const t = Math.max(0, effectiveDuration > 0 ? Math.min(target, effectiveDuration) : target);
-      const v = videoRef.current;
-      if (!v) return;
-      const videoT = t - startOffset;
-      if (videoT >= 0) {
-        const buf = v.buffered;
-        for (let i = 0; i < buf.length; i++) {
-          if (videoT >= buf.start(i) && videoT <= buf.end(i) + 2) {
-            v.currentTime = videoT;
-            setCurrentTime(t);
-            return;
-          }
-        }
-      }
-      // Not buffered → restart ffmpeg from new position; reset retry counter
-      plexRetries.current = 0;
-      setIsBuffering(true);
-      setStartOffset(Math.floor(t));
-      setCurrentTime(t);
-    };
-    seekFn.current = doPlexSeek;
-
-    const displayTime = isSeeking ? seekValue : currentTime;
-    const pct = effectiveDuration > 0 ? Math.min(displayTime / effectiveDuration, 1) : 0;
+    const _plexHistId = `plex-${media?.id ?? plexDirectUrl}`;
+    currentHistoryId.current = _plexHistId;
+    const _plexSaved = history.find(h => h.id === _plexHistId);
+    const plexMpvStart =
+      (_plexSaved?.progressSecs ?? 0) > 30 &&
+      (_plexSaved?.durationSecs ?? 0) > 0 &&
+      (_plexSaved?.progressSecs ?? 0) < (_plexSaved?.durationSecs ?? 1) * 0.9
+        ? (_plexSaved?.progressSecs ?? 0) : 0;
 
     return (
-      <div className="flex-1 flex flex-col bg-black overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2 bg-bg-primary/90 border-b border-border text-xs text-text-secondary flex-shrink-0">
-          <button
-            onClick={() => { setPlexDirectUrl(null); setView("detail"); setStartOffset(0); }}
-            className="btn-ghost py-1 px-2 text-xs"
-          >
-            <ArrowLeft size={13} /> Volver
-          </button>
-          <span className="text-white font-medium truncate flex-1">{title}</span>
-          <span className="text-orange-400/70 text-[10px] flex items-center gap-1">
-            <Server size={11} /> Plex
-          </span>
-        </div>
-
-        <div className="flex-1 relative bg-black overflow-hidden">
-          {resumeToast && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-bg-card/95 border border-border rounded-xl px-4 py-2 flex items-center gap-3 shadow-xl backdrop-blur-sm">
-              <Play size={13} className="text-accent flex-shrink-0" />
-              <span className="text-white text-xs">Reanudando desde <strong>{fmtTimestamp(resumeToast.at)}</strong></span>
-              <button onClick={() => { setStartOffset(0); setCurrentTime(0); setResumeToast(null); }} className="text-text-muted hover:text-white text-xs underline">Reiniciar</button>
-              <button onClick={() => setResumeToast(null)} className="text-text-muted hover:text-white ml-1"><X size={12} /></button>
-            </div>
-          )}
-          <video
-            key={`plex-${startOffset}`}
-            ref={videoRef}
-            src={plexTranscodeUrl}
-            autoPlay
-            className="w-full h-full cursor-pointer"
-            onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-            onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
-            onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
-            onPause={() => setIsPlaying(false)}
-            onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => { plexRetries.current = 0; setIsBuffering(false); }}
-            onError={() => {
-              // If we're buffering (mid-seek), retry up to 3× before showing error
-              if (isBufferingRef.current && plexRetries.current < 3) {
-                plexRetries.current++;
-                setTimeout(() => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.load();
-                  v.play().catch(() => {});
-                }, 1500);
-              } else {
-                plexRetries.current = 0;
-                setIsBuffering(false);
-                setPlexVideoError(true);
-              }
-            }}
-            onVolumeChange={() => {
-              if (!videoRef.current) return;
-              setVolume(videoRef.current.volume);
-              setIsMuted(videoRef.current.muted);
-            }}
-          >
-            {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
-          </video>
-          {(isBuffering || plexVideoError) && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">
-              {plexVideoError ? (
-                <>
-                  <AlertCircle size={44} className="text-red-400" />
-                  <p className="text-red-300 text-sm font-semibold">Servidor Plex no disponible</p>
-                  <p className="text-red-400/70 text-xs">El servidor se ha caído o no es accesible</p>
-                  <button
-                    className="mt-1 px-4 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors pointer-events-auto"
-                    onClick={() => { setPlexVideoError(false); setIsBuffering(true); setStartOffset(0); setCurrentTime(0); }}
-                  >
-                    Reintentar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Loader2 size={48} className="animate-spin text-orange-400" />
-                  <p className="text-white/70 text-sm">
-                    {plexRetries.current > 0 ? `Reconectando… (${plexRetries.current}/3)` : "Iniciando transcodificación…"}
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent pt-8 pb-2 px-3 flex flex-col gap-1.5">
-            {/* Seek bar */}
-            <div className="relative h-5 flex items-center group">
-              <div className="absolute inset-x-0 h-1 bg-white/20 rounded-full" />
-              <div
-                className="absolute left-0 h-1 bg-orange-400 rounded-full pointer-events-none"
-                style={{ width: `${Math.min(pct * 100, 100)}%` }}
-              />
-              <div
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full shadow pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ left: `${Math.min(pct * 100, 100)}%` }}
-              />
-              <input
-                type="range" min={0}
-                max={effectiveDuration > 0 ? Math.ceil(effectiveDuration) : Math.max(Math.ceil(currentTime) + 300, 600)}
-                step={1}
-                value={Math.round(isSeeking ? seekValue : currentTime)}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                onMouseDown={() => { setIsSeeking(true); setSeekValue(currentTime); }}
-                onChange={(e) => setSeekValue(parseFloat(e.target.value))}
-                onMouseUp={(e) => { doPlexSeek(parseFloat((e.target as HTMLInputElement).value)); setIsSeeking(false); }}
-                onTouchEnd={(e) => { doPlexSeek(parseFloat((e.target as HTMLInputElement).value)); setIsSeeking(false); }}
-              />
-            </div>
-
-            {/* Controls row */}
-            <div className="flex items-center gap-2">
-              <button
-                className="text-white hover:text-orange-400 transition-colors p-1"
-                onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-              >
-                {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-              </button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doPlexSeek(currentTime - 30)}>−30s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doPlexSeek(currentTime - 10)}>−10s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doPlexSeek(currentTime + 10)}>+10s</button>
-              <button className="text-white/70 hover:text-white text-xs font-medium px-1.5 py-0.5 transition-colors"
-                      onClick={() => doPlexSeek(currentTime + 30)}>+30s</button>
-              <span className="text-white/80 text-xs font-mono ml-1 tabular-nums">
-                {fmtTimePlex(currentTime)}{effectiveDuration > 0 ? ` / ${fmtTimePlex(effectiveDuration)}` : ""}
-              </span>
-
-              <div className="flex-1" />
-
-              <button
-                className="text-white/70 hover:text-white transition-colors p-1"
-                onClick={() => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; }}
-              >
-                {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              </button>
-              <input
-                type="range" min={0} max={1} step={0.05} value={isMuted ? 0 : volume}
-                className="w-16 cursor-pointer"
-                style={{ accentColor: "rgb(251 146 60)" }}
-                onChange={(e) => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.volume = parseFloat(e.target.value);
-                  v.muted = parseFloat(e.target.value) === 0;
-                }}
-              />
-              <button
-                className={cn("flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors",
-                  extSubUrl ? "text-green-400" : "text-white/70 hover:text-white")}
-                onClick={() => setShowSubPanel((v) => !v)}
-                title="Subtítulos externos"
-              >
-                <Subtitles size={12} /> CC
-              </button>
-              <button
-                className="text-white/70 hover:text-white transition-colors p-1"
-                onClick={() => {
-                  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-                  else videoRef.current?.requestFullscreen().catch(() => {});
-                }}
-              >
-                <Maximize2 size={15} />
-              </button>
-            </div>
-          </div>
-
-          <SubtitlePanel
-            show={showSubPanel} lang={subLang} results={subResults}
-            loading={subLoading} downloading={subDownloading} error={subError}
-            extSubUrl={extSubUrl}
-            onClose={() => setShowSubPanel(false)}
-            onLangChange={setSubLang}
-            onSearch={handleSubSearch}
-            onSelect={handleSubtitleSelect}
-            onClear={() => { if (extSubUrl) URL.revokeObjectURL(extSubUrl); setExtSubUrl(null); }}
-          />
-        </div>
-      </div>
+      <MpvOverlay
+        url={plexDirectUrl}
+        startSecs={plexMpvStart}
+        title={title}
+        subtitle="Plex · MPV"
+        accentColor="#f97316"
+        onBack={() => { setPlexDirectUrl(null); setView("detail"); }}
+        onTimeUpdate={(pos, dur) => {
+          currentTimeRef.current = pos;
+          if (dur > 0) durationRef.current = dur;
+          if (currentHistoryId.current && durationRef.current > 0 && pos > 5) {
+            updateHistoryProgress(currentHistoryId.current, pos, durationRef.current);
+          }
+        }}
+        onClose={(finalPos) => {
+          if (currentHistoryId.current && durationRef.current > 0) {
+            updateHistoryProgress(currentHistoryId.current, finalPos, durationRef.current);
+          }
+        }}
+      />
     );
+
   }
 
   // ── Streaming view ───────────────────────────────────────────────────────────

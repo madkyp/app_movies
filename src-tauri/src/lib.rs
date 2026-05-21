@@ -89,6 +89,13 @@ pub fn run() {
             commands::clear_smb_cache,
             commands::get_cache_size,
             commands::clear_cache,
+            commands::mpv_ipc_launch,
+            commands::mpv_ipc_get_pos,
+            commands::mpv_ipc_get_duration,
+            commands::mpv_ipc_set_pause,
+            commands::mpv_ipc_seek,
+            commands::mpv_ipc_quit,
+            commands::mpv_ipc_alive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
