@@ -281,6 +281,26 @@ async fn unmount_iso() {
 }
 
 /// Drains the stderr JoinHandle with a short timeout, returning whatever was collected.
+/// Find the largest .m2ts file inside a mounted Blu-ray BDMV/STREAM directory.
+/// Returns the absolute path, or None if no .m2ts files are found.
+async fn find_main_m2ts(mount_point: &str) -> Option<String> {
+    let stream_dir = format!("{}/BDMV/STREAM", mount_point);
+    let mut rd = tokio::fs::read_dir(&stream_dir).await.ok()?;
+    let mut best: Option<(u64, String)> = None;
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.ends_with(".m2ts") {
+            if let Ok(meta) = entry.metadata().await {
+                let sz = meta.len();
+                if best.as_ref().map_or(true, |(s, _)| sz > *s) {
+                    best = Some((sz, entry.path().to_string_lossy().into_owned()));
+                }
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 async fn drain_stderr(handle: &mut Option<tokio::task::JoinHandle<String>>) -> String {
     let h = handle.take().unwrap_or_else(|| tokio::spawn(async { String::new() }));
     tokio::time::timeout(std::time::Duration::from_millis(500), h)
@@ -424,36 +444,59 @@ pub async fn mpv_ipc_launch(url: String, start_secs: f64, title: String) -> Resu
                 Err((dvd_code, dvd_stderr)) => {
                     // Both bluray:// and dvd:// failed with udfread errors.
                     // Last resort: mount the ISO via udisksctl (no root) and let
-                    // libbluray read from the mounted directory, bypassing udfread.
+                    // Mount the ISO and play the largest .m2ts directly — bypasses
+                    // both udfread and libbluray navigation issues entirely.
                     #[cfg(unix)]
                     match mount_iso_udisks(&url).await {
                         Ok(mount_point) => {
-                            let mut mount_args = vec![
-                                "bluray://".into(),
-                                format!("--bluray-device={}", mount_point),
-                                ipc_arg,
-                                title_arg,
-                                "--force-window=yes".into(),
-                                "--no-terminal".into(),
-                            ];
-                            if start_secs > 0.5 { mount_args.push(format!("--start={}", start_str)); }
+                            match find_main_m2ts(&mount_point).await {
+                                Some(m2ts_path) => {
+                                    let mut m2ts_args = vec![
+                                        m2ts_path,
+                                        ipc_arg,
+                                        title_arg,
+                                        "--force-window=yes".into(),
+                                        "--no-terminal".into(),
+                                    ];
+                                    if start_secs > 0.5 { m2ts_args.push(format!("--start={}", start_str)); }
 
-                            match try_mpv_args(mount_args).await {
-                                Ok(child) => {
-                                    *MPV_IPC_CHILD.lock().await = Some(child);
-                                    return Ok(());
+                                    match try_mpv_args(m2ts_args).await {
+                                        Ok(child) => {
+                                            *MPV_IPC_CHILD.lock().await = Some(child);
+                                            return Ok(());
+                                        }
+                                        Err((_, m2ts_err)) => {
+                                            unmount_iso().await;
+                                            return Err(format!(
+                                                "El ISO se montó pero mpv no pudo reproducir el stream:\n{}",
+                                                m2ts_err.lines().take(4).collect::<Vec<_>>().join("\n")
+                                            ));
+                                        }
+                                    }
                                 }
-                                Err(_) => { unmount_iso().await; }
+                                None => {
+                                    unmount_iso().await;
+                                    return Err(
+                                        "No se encontró ningún archivo .m2ts en BDMV/STREAM del ISO montado.".into()
+                                    );
+                                }
                             }
                         }
-                        Err(_) => {} // udisksctl unavailable — fall through to error
+                        Err(mount_err) => {
+                            return Err(format!(
+                                "No se pudo montar el ISO automáticamente:\n{}\n\n\
+                                 Instala udisks2 si no está disponible: pacman -S udisks2\n\
+                                 O monta el ISO manualmente y accede desde 'Carpeta local':\n\
+                                   udisksctl loop-setup --file \"{}\" --no-user-interaction",
+                                mount_err, url
+                            ));
+                        }
                     }
 
+                    #[cfg(not(unix))]
                     Err(format!(
                         "No se pudo abrir el ISO (Blu-ray código {code}, DVD código {dvd_code}).\n\
-                         Si es un backup de MakeMKV, asegúrate de que udisksctl está instalado:\n\
-                           pacman -S udisks2\n\n\
-                         Alternativa: usa MakeMKV para convertir el ISO a MKV y reprodúcelo directamente.",
+                         Usa MakeMKV para convertir el ISO a MKV y reprodúcelo directamente.",
                     ))
                 }
             }
