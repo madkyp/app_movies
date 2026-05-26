@@ -290,6 +290,7 @@ export function Player() {
   const plexRetries = useRef(0);        // retry count when Plex seek errors
   const localRetries = useRef(0);       // retry count when local file seek errors
   const torrentRetries = useRef(0);     // retry count when torrent video errors on startup
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
@@ -920,18 +921,60 @@ export function Player() {
             className="w-full h-full cursor-pointer"
             onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
             onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
-            onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
             onPause={() => setIsPlaying(false)}
-            onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => { localRetries.current = 0; setIsBuffering(false); }}
+            onWaiting={() => {
+              setIsBuffering(true);
+              if (!stallTimerRef.current) {
+                stallTimerRef.current = setTimeout(() => {
+                  stallTimerRef.current = null;
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const pos = startOffsetRef.current + v.currentTime;
+                  localRetries.current = 0;
+                  setLocalVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
+                }, 10000);
+              }
+            }}
+            onStalled={() => {
+              setIsBuffering(true);
+              if (!stallTimerRef.current) {
+                stallTimerRef.current = setTimeout(() => {
+                  stallTimerRef.current = null;
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const pos = startOffsetRef.current + v.currentTime;
+                  localRetries.current = 0;
+                  setLocalVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
+                }, 10000);
+              }
+            }}
+            onCanPlay={() => {
+              localRetries.current = 0;
+              setIsBuffering(false);
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+            }}
+            onPlay={() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+            }}
             onError={() => {
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+              const v = videoRef.current;
+              const pos = startOffsetRef.current + (v?.currentTime ?? 0);
               if (localRetries.current < 3) {
                 localRetries.current++;
                 setTimeout(() => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.load();
-                  v.play().catch(() => {});
+                  setLocalVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
                 }, 1500);
               } else {
                 localRetries.current = 0;
@@ -1217,18 +1260,60 @@ export function Player() {
             className="w-full h-full cursor-pointer"
             onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
             onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
-            onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
+            onPlay={() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+            }}
             onPause={() => setIsPlaying(false)}
-            onWaiting={() => setIsBuffering(true)}
-            onCanPlay={() => { plexRetries.current = 0; setIsBuffering(false); }}
+            onWaiting={() => {
+              setIsBuffering(true);
+              if (!stallTimerRef.current) {
+                stallTimerRef.current = setTimeout(() => {
+                  stallTimerRef.current = null;
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const pos = startOffsetRef.current + v.currentTime;
+                  plexRetries.current = 0;
+                  setPlexVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
+                }, 10000);
+              }
+            }}
+            onStalled={() => {
+              setIsBuffering(true);
+              if (!stallTimerRef.current) {
+                stallTimerRef.current = setTimeout(() => {
+                  stallTimerRef.current = null;
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const pos = startOffsetRef.current + v.currentTime;
+                  plexRetries.current = 0;
+                  setPlexVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
+                }, 10000);
+              }
+            }}
+            onCanPlay={() => {
+              plexRetries.current = 0;
+              setIsBuffering(false);
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+            }}
             onError={() => {
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+              const v = videoRef.current;
+              const pos = startOffsetRef.current + (v?.currentTime ?? 0);
               if (plexRetries.current < 3) {
                 plexRetries.current++;
                 setTimeout(() => {
-                  const v = videoRef.current;
-                  if (!v) return;
-                  v.load();
-                  v.play().catch(() => {});
+                  setPlexVideoError(false);
+                  setIsBuffering(true);
+                  setStartOffset(Math.floor(pos));
+                  setCurrentTime(pos);
                 }, 1500);
               } else {
                 plexRetries.current = 0;

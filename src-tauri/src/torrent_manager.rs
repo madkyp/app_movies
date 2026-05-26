@@ -436,6 +436,8 @@ async fn h_play_plex(
         "-analyzeduration".into(), "100000".into(),
         "-probesize".into(), "500000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
+        // Limit read rate so the browser buffer doesn't overflow and stall the pipe.
+        "-readrate".into(), "3.0".into(),
     ]);
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
@@ -601,6 +603,10 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         "-analyzeduration".into(), "2000000".into(),
         "-probesize".into(), "5000000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
+        // Limit input read rate to 3× real-time so the browser's buffer never overflows.
+        // Without this, ffmpeg reads local files at disk speed (>>100×), fills the browser's
+        // buffer in seconds, the TCP pipe stalls, and the connection eventually dies.
+        "-readrate".into(), "3.0".into(),
     ]);
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
