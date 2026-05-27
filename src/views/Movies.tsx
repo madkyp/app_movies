@@ -150,6 +150,7 @@ export function Movies() {
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
+            style={{ colorScheme: "dark" }}
             className="bg-bg-card border border-border text-text-secondary text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-accent/50 hover:border-accent/30 transition-colors"
           >
             {YEARS.map((y) => (
