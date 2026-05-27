@@ -148,7 +148,7 @@ export function NetworkFolders() {
   const [sortKey, setSortKey] = useState<SortKey>("dirs-first");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [viewMode, setViewMode] = useState<"list" | "gallery">(() =>
-    (localStorage.getItem("folders-view-mode") as "list" | "gallery") ?? "list"
+    (localStorage.getItem("folders-view-mode") as "list" | "gallery") ?? "gallery"
   );
   const [tmdbMap, setTmdbMap] = useState<Map<string, Media | null>>(new Map());
   const tmdbCacheRef = useRef(tmdbCache);
