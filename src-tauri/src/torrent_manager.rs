@@ -600,8 +600,8 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         args.extend(["-hwaccel".into(), "auto".into()]);
     }
     args.extend([
-        "-analyzeduration".into(), "2000000".into(),
-        "-probesize".into(), "5000000".into(),
+        "-analyzeduration".into(), "500000".into(),
+        "-probesize".into(), "500000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
         // Limit input read rate to 3× real-time so the browser's buffer never overflows.
         // Without this, ffmpeg reads local files at disk speed (>>100×), fills the browser's

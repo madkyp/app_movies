@@ -467,7 +467,7 @@ export function Player() {
       const saved = history.find((h) => h.id === histId);
       if (saved?.progressSecs && saved.progressSecs > 30 &&
           saved.durationSecs && saved.progressSecs < saved.durationSecs * 0.9) {
-        setStartOffset(saved.progressSecs);
+        setStartOffset(Math.round(saved.progressSecs));
         setResumeToast({ at: saved.progressSecs });
       } else {
         setStartOffset(0);
@@ -504,7 +504,7 @@ export function Player() {
     const saved = history.find((h) => h.id === histId);
     if (saved?.progressSecs && saved.progressSecs > 30 &&
         saved.durationSecs && saved.progressSecs < saved.durationSecs * 0.9) {
-      setStartOffset(saved.progressSecs);
+      setStartOffset(Math.round(saved.progressSecs));
       setResumeToast({ at: saved.progressSecs });
     } else {
       setStartOffset(0);
@@ -924,7 +924,8 @@ export function Player() {
             onPause={() => setIsPlaying(false)}
             onWaiting={() => {
               setIsBuffering(true);
-              if (!stallTimerRef.current) {
+              const vt = videoRef.current?.currentTime ?? 0;
+              if (!stallTimerRef.current && vt >= 1) {
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -935,12 +936,13 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 10000);
+                }, 20000);
               }
             }}
             onStalled={() => {
               setIsBuffering(true);
-              if (!stallTimerRef.current) {
+              const vt = videoRef.current?.currentTime ?? 0;
+              if (!stallTimerRef.current && vt >= 1) {
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -951,7 +953,7 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 10000);
+                }, 20000);
               }
             }}
             onCanPlay={() => {
@@ -1268,7 +1270,8 @@ export function Player() {
             onPause={() => setIsPlaying(false)}
             onWaiting={() => {
               setIsBuffering(true);
-              if (!stallTimerRef.current) {
+              const vt = videoRef.current?.currentTime ?? 0;
+              if (!stallTimerRef.current && vt >= 1) {
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -1279,12 +1282,13 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 10000);
+                }, 20000);
               }
             }}
             onStalled={() => {
               setIsBuffering(true);
-              if (!stallTimerRef.current) {
+              const vt = videoRef.current?.currentTime ?? 0;
+              if (!stallTimerRef.current && vt >= 1) {
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -1295,7 +1299,7 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 10000);
+                }, 20000);
               }
             }}
             onCanPlay={() => {
