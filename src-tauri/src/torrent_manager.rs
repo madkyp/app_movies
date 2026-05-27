@@ -436,17 +436,20 @@ async fn h_play_plex(
         "-analyzeduration".into(), "100000".into(),
         "-probesize".into(), "500000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
-        // Limit read rate so the browser buffer doesn't overflow and stall the pipe.
-        "-readrate".into(), "3.0".into(),
+        // 1.2× keeps ffmpeg almost continuously reading from Plex so the HTTP
+        // input connection never goes idle long enough for the server to drop it.
+        // 3.0× was causing 15-30 min idle periods → Plex closing the connection.
+        "-readrate".into(), "1.2".into(),
     ]);
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
     }
-    // HTTP reconnect options keep the connection alive if Plex briefly drops it during seeks
+    // Reconnect if Plex drops the HTTP connection (e.g. server restart, brief hiccup)
     args.extend([
         "-reconnect".into(), "1".into(),
         "-reconnect_streamed".into(), "1".into(),
-        "-reconnect_delay_max".into(), "2".into(),
+        "-reconnect_delay_max".into(), "5".into(),
+        "-reconnect_on_network_error".into(), "1".into(),
     ]);
     args.extend([
         "-i".into(), params.url,
@@ -603,10 +606,9 @@ async fn h_play_local(Query(params): Query<LocalPlayParams>) -> Response {
         "-analyzeduration".into(), "500000".into(),
         "-probesize".into(), "500000".into(),
         "-fflags".into(), "+genpts+discardcorrupt".into(),
-        // Limit input read rate to 3× real-time so the browser's buffer never overflows.
-        // Without this, ffmpeg reads local files at disk speed (>>100×), fills the browser's
-        // buffer in seconds, the TCP pipe stalls, and the connection eventually dies.
-        "-readrate".into(), "3.0".into(),
+        // Limit read rate to 2× so the browser buffer never overflows.
+        // Without this, ffmpeg reads local/SMB files at disk speed (>>100×).
+        "-readrate".into(), "2.0".into(),
     ]);
     if start_secs > 0.5 {
         args.extend(["-ss".into(), start_str]);
