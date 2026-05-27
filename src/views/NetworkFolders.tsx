@@ -418,7 +418,7 @@ export function NetworkFolders() {
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent cursor-pointer"
+              className="bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent cursor-pointer [&>option]:bg-[#1e1e2e] [&>option]:text-white"
             >
               <option value="dirs-first">Carpetas primero</option>
               <option value="name-asc">Nombre A→Z</option>
