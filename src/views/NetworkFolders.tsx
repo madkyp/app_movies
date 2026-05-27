@@ -3,17 +3,119 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   FolderOpen, FolderPlus, ChevronRight, Play, Trash2,
   ArrowLeft, Loader2, AlertCircle, HardDrive, Film, Music,
-  Search, ArrowUpDown,
+  Search, ArrowUpDown, LayoutGrid, List, Star,
 } from "lucide-react";
 import { useStore } from "../store/useStore";
-import { cn } from "../lib/utils";
+import { cn, getPosterUrl } from "../lib/utils";
+import { TMDB_FALLBACK_KEY } from "../hooks/useTmdb";
 import type { FolderEntry, SavedFolder } from "../types";
+import type { Media } from "../types";
 
 type SortKey = "name-asc" | "name-desc" | "ext" | "dirs-first";
 type TypeFilter = "all" | "video" | "audio" | "dirs";
 
 const VIDEO_EXTS = new Set(["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "webm", "m2ts", "mpg", "mpeg"]);
 const AUDIO_EXTS = new Set(["flac", "mp3", "aac", "m4a", "ogg", "wav", "opus"]);
+const TMDB_BASE = "https://api.themoviedb.org/3";
+
+// ── Filename → title + year ──────────────────────────────────────────────────
+function parseFilename(filename: string): { title: string; year?: number } {
+  let s = filename.replace(/\.[a-z0-9]{2,5}$/i, "");
+
+  // Extract year before stripping it
+  const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
+  const year = yearMatch ? parseInt(yearMatch[1]) : undefined;
+  if (yearMatch?.index !== undefined) s = s.slice(0, yearMatch.index);
+
+  // Strip bracket/paren content and quality tags
+  s = s.replace(/\[.*?\]/g, " ").replace(/\(.*?\)/g, " ");
+  s = s.replace(/[._]/g, " ");
+  s = s.replace(/\b(?:4K|UHD|BluRay|BDRip|BRRip|DVDRip|HDRip|WEBRip|WEB[-.]DL|HDTV|x264|x265|HEVC|H\.?26[45]|AAC|AC3|DTS|HDR10?|SDR|Remux|REPACK|PROPER|EXTENDED|THEATRICAL|IMAX|2160p|1080p|720p|480p)\b.*/gi, "");
+
+  // Remove leading "year - " prefix (e.g. "1995 - Seven")
+  s = s.replace(/^\d{4}\s*[-–]\s*/, "");
+
+  s = s.trim().replace(/\s+/g, " ").replace(/^[-–\s]+|[-–\s]+$/g, "").trim();
+  return { title: s || filename.replace(/\.[^.]+$/, ""), year };
+}
+
+// Module-level TMDB result cache (persists across folder navigations)
+const tmdbCache = new Map<string, Media | null>();
+
+async function searchTmdb(
+  title: string,
+  year: number | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<Media | null> {
+  if (!title.trim()) return null;
+  const yearParam = year ? `&year=${year}` : "";
+  const url = `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}${yearParam}&language=es-ES&api_key=${apiKey}`;
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    const data: { results: Media[] } = await res.json();
+    return data.results.find((m) => m.poster_path) ?? data.results[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Local poster card ────────────────────────────────────────────────────────
+function LocalPosterCard({
+  entry, media, onPlay,
+}: {
+  entry: FolderEntry;
+  media: Media | null | undefined; // undefined = still loading
+  onPlay: () => void;
+}) {
+  const parsed = parseFilename(entry.name);
+  const title = media?.title ?? parsed.title;
+  const year = media?.release_date
+    ? media.release_date.slice(0, 4)
+    : parsed.year ? String(parsed.year) : "";
+  const poster = media?.poster_path ? getPosterUrl(media.poster_path) : null;
+  const rating = media?.vote_average ?? 0;
+
+  return (
+    <div className="media-card group w-[140px] flex-shrink-0 cursor-pointer" onClick={onPlay}>
+      <div className="relative w-full aspect-[2/3]">
+        {poster ? (
+          <img src={poster} alt={title} className="w-full h-full object-cover" loading="lazy" />
+        ) : media === undefined ? (
+          <div className="w-full h-full flex items-center justify-center bg-bg-secondary">
+            <Loader2 size={20} className="animate-spin text-text-muted/50" />
+          </div>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-bg-secondary px-2">
+            <Film size={28} className="text-text-muted" />
+            <p className="text-text-muted text-[9px] text-center leading-tight line-clamp-3">{title}</p>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-card opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+
+        {rating > 0 && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1">
+            <Star size={10} className="text-yellow-400 fill-yellow-400" />
+            <span className="text-[11px] font-semibold text-yellow-400">{rating.toFixed(1)}</span>
+          </div>
+        )}
+
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="bg-accent/90 rounded-full p-2.5 shadow-lg">
+            <Play size={16} className="fill-white text-white" />
+          </div>
+        </div>
+      </div>
+
+      <div className="p-2">
+        <p className="text-text-primary text-xs font-medium truncate">{title}</p>
+        {year && <p className="text-text-muted text-[10px] mt-0.5">{year}</p>}
+      </div>
+    </div>
+  );
+}
 
 function fileIcon(ext: string) {
   if (VIDEO_EXTS.has(ext)) return <Film size={14} className="text-accent flex-shrink-0" />;
@@ -34,7 +136,8 @@ function maskSmbPath(path: string): string {
 }
 
 export function NetworkFolders() {
-  const { setView, setLocalFileUrl } = useStore();
+  const { setView, setLocalFileUrl, settings } = useStore();
+  const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
 
   const [savedFolders, setSavedFolders] = useState<SavedFolder[]>([]);
   const [browseStack, setBrowseStack] = useState<{ path: string; name: string }[]>([]);
@@ -44,6 +147,11 @@ export function NetworkFolders() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("dirs-first");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [viewMode, setViewMode] = useState<"list" | "gallery">(() =>
+    (localStorage.getItem("folders-view-mode") as "list" | "gallery") ?? "list"
+  );
+  const [tmdbMap, setTmdbMap] = useState<Map<string, Media | null>>(new Map());
+  const tmdbCacheRef = useRef(tmdbCache);
 
   const visibleEntries = useMemo(() => {
     let list = entries;
@@ -70,6 +178,44 @@ export function NetworkFolders() {
     });
     return list;
   }, [entries, search, sortKey, typeFilter]);
+
+  // Derived subsets for gallery view
+  const dirEntries = useMemo(() => visibleEntries.filter((e) => e.is_dir), [visibleEntries]);
+  const videoEntries = useMemo(() => visibleEntries.filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension)), [visibleEntries]);
+
+  // Fetch TMDB posters when gallery mode is active
+  useEffect(() => {
+    if (viewMode !== "gallery") return;
+    const vids = entries.filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension));
+    if (vids.length === 0) return;
+
+    // Seed map with whatever is already cached
+    setTmdbMap(new Map(tmdbCacheRef.current));
+
+    const controller = new AbortController();
+    const uncached = vids.filter((e) => !tmdbCacheRef.current.has(e.path));
+
+    (async () => {
+      const BATCH = 8;
+      for (let i = 0; i < uncached.length; i += BATCH) {
+        if (controller.signal.aborted) break;
+        await Promise.all(
+          uncached.slice(i, i + BATCH).map(async (entry) => {
+            const { title, year } = parseFilename(entry.name);
+            const result = await searchTmdb(title, year, apiKey, controller.signal);
+            if (!controller.signal.aborted) {
+              tmdbCacheRef.current.set(entry.path, result ?? null);
+            }
+          })
+        );
+        if (!controller.signal.aborted) {
+          setTmdbMap(new Map(tmdbCacheRef.current));
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [viewMode, entries, apiKey]);
 
   // Add-folder form
   const [showAdd, setShowAdd] = useState(false);
@@ -129,34 +275,32 @@ export function NetworkFolders() {
     const user = addSmbUser.trim();
     const pass = addSmbPass;
     if (!user) return `smb://${withoutScheme}`;
-    const creds = pass ? `${user}:${pass}` : user;
-    return `smb://${creds}@${withoutScheme}`;
+    if (!pass) return `smb://${user}@${withoutScheme}`;
+    return `smb://${user}:${pass}@${withoutScheme}`;
   };
 
   const handleAddFolder = async () => {
-    const path = buildFullPath();
-    if (!path) { setAddError("Introduce una ruta o URL"); return; }
+    const fullPath = buildFullPath();
+    if (!fullPath) return;
+    setChecking(true);
     setAddError(null);
     setCheckOk(false);
-    setChecking(true);
     try {
-      await invoke<FolderEntry[]>("browse_folder", { path });
-    } catch (e) {
-      setChecking(false);
-      setAddError(String(e));
-      return;
-    }
-    setChecking(false);
-    setCheckOk(true);
-    const displayPath = addPath.trim();
-    const name = addName.trim() || displayPath.split("/").filter(Boolean).pop() || displayPath;
-    try {
-      await invoke("save_folder", { name, path });
-      const updated = await invoke<SavedFolder[]>("get_saved_folders");
-      setSavedFolders(updated);
-      setShowAdd(false);
-      setAddName(""); setAddPath(""); setAddSmbUser(""); setAddSmbPass("");
-      setCheckOk(false);
+      await invoke("add_folder", {
+        path: fullPath,
+        name: addName.trim() || fullPath.split(/[/\\]/).filter(Boolean).pop() || fullPath,
+      });
+      const folders = await invoke<SavedFolder[]>("get_saved_folders");
+      setSavedFolders(folders);
+      setCheckOk(true);
+      setTimeout(() => {
+        setShowAdd(false);
+        setAddName("");
+        setAddPath("");
+        setAddSmbUser("");
+        setAddSmbPass("");
+        setCheckOk(false);
+      }, 800);
     } catch (e) {
       setCheckOk(false);
       setAddError(String(e));
@@ -172,6 +316,14 @@ export function NetworkFolders() {
   const playFile = (entry: FolderEntry) => {
     setLocalFileUrl(entry.path, entry.name);
     setView("player");
+  };
+
+  const toggleView = () => {
+    setViewMode((v) => {
+      const next = v === "list" ? "gallery" : "list";
+      localStorage.setItem("folders-view-mode", next);
+      return next;
+    });
   };
 
   // ── Breadcrumb ───────────────────────────────────────────────────────────────
@@ -412,7 +564,7 @@ export function NetworkFolders() {
             })}
           </div>
 
-          {/* Sort */}
+          {/* Sort + view toggle */}
           <div className="flex items-center gap-1 ml-auto">
             <ArrowUpDown size={13} className="text-text-muted" />
             <select
@@ -426,6 +578,19 @@ export function NetworkFolders() {
               <option value="name-desc">Nombre Z→A</option>
               <option value="ext">Por extensión</option>
             </select>
+
+            <button
+              onClick={toggleView}
+              title={viewMode === "gallery" ? "Vista lista" : "Vista galería"}
+              className={cn(
+                "p-1.5 rounded-lg border transition-all",
+                viewMode === "gallery"
+                  ? "bg-accent border-accent text-white"
+                  : "bg-bg-card border-border text-text-secondary hover:border-accent/50 hover:text-white"
+              )}
+            >
+              {viewMode === "gallery" ? <List size={14} /> : <LayoutGrid size={14} />}
+            </button>
           </div>
         </div>
       </div>
@@ -459,7 +624,68 @@ export function NetworkFolders() {
           </div>
         )}
 
-        {!loading && !error && (
+        {/* ── Gallery view ──────────────────────────────────────────────── */}
+        {!loading && !error && viewMode === "gallery" && visibleEntries.length > 0 && (
+          <div>
+            {/* Subfolder chips */}
+            {dirEntries.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-5">
+                {dirEntries.map((entry) => (
+                  <button
+                    key={entry.path}
+                    onClick={() => openFolder(entry.path, entry.name)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-bg-card border-border hover:border-accent/50 hover:bg-bg-hover text-xs text-text-secondary hover:text-white transition-all"
+                  >
+                    <FolderOpen size={13} className="text-accent/70" />
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Video poster grid */}
+            {videoEntries.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {videoEntries.map((entry) => (
+                  <LocalPosterCard
+                    key={entry.path}
+                    entry={entry}
+                    media={tmdbMap.has(entry.path) ? tmdbMap.get(entry.path)! : undefined}
+                    onPlay={() => playFile(entry)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Non-video files (audio, etc.) in a compact list below */}
+            {visibleEntries.filter((e) => !e.is_dir && !VIDEO_EXTS.has(e.extension)).length > 0 && (
+              <div className="mt-5 space-y-1 max-w-3xl">
+                {visibleEntries
+                  .filter((e) => !e.is_dir && !VIDEO_EXTS.has(e.extension))
+                  .map((entry) => (
+                    <div
+                      key={entry.path}
+                      onClick={() => playFile(entry)}
+                      className="flex items-center gap-3 px-4 py-2.5 rounded-xl border bg-bg-card border-border hover:border-accent/60 hover:bg-accent/5 cursor-pointer transition-all"
+                    >
+                      {fileIcon(entry.extension)}
+                      <span className="flex-1 text-sm text-white truncate">{entry.name}</span>
+                      {entry.size && <span className="text-text-muted text-xs">{entry.size}</span>}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); playFile(entry); }}
+                        className="btn-primary py-1 px-3 text-xs flex-shrink-0 flex items-center gap-1"
+                      >
+                        <Play size={11} className="fill-white" /> Play
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── List view ─────────────────────────────────────────────────── */}
+        {!loading && !error && viewMode === "list" && (
           <div className="space-y-1 max-w-3xl">
             {visibleEntries.map((entry) => (
               <div
