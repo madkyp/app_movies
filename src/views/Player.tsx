@@ -1011,7 +1011,11 @@ export function Player() {
                 <>
                   <Loader2 size={48} className="animate-spin text-accent" />
                   <p className="text-white/70 text-sm">
-                    {localRetries.current > 0 ? `Reconectando… (${localRetries.current}/3)` : "Iniciando reproducción…"}
+                    {localRetries.current > 0
+                      ? `Reconectando… (${localRetries.current}/3)`
+                      : startOffset > 30
+                        ? `Buscando minuto ${Math.floor(startOffset / 60)}…`
+                        : "Iniciando reproducción…"}
                   </p>
                 </>
               )}

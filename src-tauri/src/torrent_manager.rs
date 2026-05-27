@@ -682,6 +682,21 @@ async fn h_tracks_local(Query(params): Query<LocalPlayParams>) -> Response {
             .unwrap(),
     };
 
+    // Warm the probe_codecs cache so h_play_local doesn't need a second ffprobe.
+    if let Ok(probed) = serde_json::from_slice::<FfprobeOutput>(&output.stdout) {
+        let v = probed.streams.iter()
+            .find(|s| s.codec_type.as_deref() == Some("video"))
+            .and_then(|s| s.codec_name.clone())
+            .unwrap_or_default();
+        let a = probed.streams.iter()
+            .find(|s| s.codec_type.as_deref() == Some("audio"))
+            .and_then(|s| s.codec_name.clone())
+            .unwrap_or_default();
+        if let Ok(mut cache) = codec_cache().lock() {
+            cache.entry(params.path.clone()).or_insert((v, a));
+        }
+    }
+
     parse_tracks_response(output)
 }
 
