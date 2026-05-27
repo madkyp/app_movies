@@ -291,6 +291,7 @@ export function Player() {
   const localRetries = useRef(0);       // retry count when local file seek errors
   const torrentRetries = useRef(0);     // retry count when torrent video errors on startup
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPlayTimeRef = useRef<number>(0); // timestamp of last onPlay — used for fast reconnect after pause
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
@@ -557,6 +558,21 @@ export function Player() {
       invoke("clear_smb_cache").catch(() => {});
     };
   }, [streamInfo]);
+
+  // ── Fullscreen auto-resume ───────────────────────────────────────────────────
+  // WebKit fires pause during fullscreen transitions; resume automatically.
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setTimeout(() => {
+          const v = videoRef.current;
+          if (v && v.paused) v.play().catch(() => {});
+        }, 150);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -922,10 +938,17 @@ export function Player() {
             onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
             onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
             onPause={() => setIsPlaying(false)}
+            onPlay={() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+              lastPlayTimeRef.current = Date.now();
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+            }}
             onWaiting={() => {
               setIsBuffering(true);
               const vt = videoRef.current?.currentTime ?? 0;
               if (!stallTimerRef.current && vt >= 1) {
+                const delay = Date.now() - lastPlayTimeRef.current < 5000 ? 3000 : 20000;
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -936,13 +959,14 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 20000);
+                }, delay);
               }
             }}
             onStalled={() => {
               setIsBuffering(true);
               const vt = videoRef.current?.currentTime ?? 0;
               if (!stallTimerRef.current && vt >= 1) {
+                const delay = Date.now() - lastPlayTimeRef.current < 5000 ? 3000 : 20000;
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -953,16 +977,11 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 20000);
+                }, delay);
               }
             }}
             onCanPlay={() => {
               localRetries.current = 0;
-              setIsBuffering(false);
-              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
-            }}
-            onPlay={() => {
-              setIsPlaying(true);
               setIsBuffering(false);
               if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
             }}
@@ -1269,6 +1288,7 @@ export function Player() {
             onPlay={() => {
               setIsPlaying(true);
               setIsBuffering(false);
+              lastPlayTimeRef.current = Date.now();
               if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
             }}
             onPause={() => setIsPlaying(false)}
@@ -1276,6 +1296,7 @@ export function Player() {
               setIsBuffering(true);
               const vt = videoRef.current?.currentTime ?? 0;
               if (!stallTimerRef.current && vt >= 1) {
+                const delay = Date.now() - lastPlayTimeRef.current < 5000 ? 3000 : 20000;
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -1286,13 +1307,14 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 20000);
+                }, delay);
               }
             }}
             onStalled={() => {
               setIsBuffering(true);
               const vt = videoRef.current?.currentTime ?? 0;
               if (!stallTimerRef.current && vt >= 1) {
+                const delay = Date.now() - lastPlayTimeRef.current < 5000 ? 3000 : 20000;
                 stallTimerRef.current = setTimeout(() => {
                   stallTimerRef.current = null;
                   const v = videoRef.current;
@@ -1303,7 +1325,7 @@ export function Player() {
                   setIsBuffering(true);
                   setStartOffset(Math.floor(pos));
                   setCurrentTime(pos);
-                }, 20000);
+                }, delay);
               }
             }}
             onCanPlay={() => {
