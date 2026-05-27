@@ -150,6 +150,7 @@ export function NetworkFolders() {
   const [viewMode, setViewMode] = useState<"list" | "gallery">(() =>
     (localStorage.getItem("folders-view-mode") as "list" | "gallery") ?? "list"
   );
+  const [minRating, setMinRating] = useState(0);
   const [tmdbMap, setTmdbMap] = useState<Map<string, Media | null>>(new Map());
   const tmdbCacheRef = useRef(tmdbCache);
 
@@ -181,7 +182,16 @@ export function NetworkFolders() {
 
   // Derived subsets for gallery view
   const dirEntries = useMemo(() => visibleEntries.filter((e) => e.is_dir), [visibleEntries]);
-  const videoEntries = useMemo(() => visibleEntries.filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension)), [visibleEntries]);
+  const videoEntries = useMemo(() => {
+    let list = visibleEntries.filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension));
+    if (minRating > 0) {
+      list = list.filter((e) => {
+        const rating = tmdbMap.get(e.path)?.vote_average ?? 0;
+        return rating >= minRating;
+      });
+    }
+    return list;
+  }, [visibleEntries, minRating, tmdbMap]);
 
   // Fetch TMDB posters when gallery mode is active
   useEffect(() => {
@@ -244,6 +254,7 @@ export function NetworkFolders() {
     setLoading(true);
     setSearch("");
     setTypeFilter("all");
+    setMinRating(0);
     try {
       const result = await invoke<FolderEntry[]>("browse_folder", { path });
       setEntries(result);
@@ -563,6 +574,27 @@ export function NetworkFolders() {
               );
             })}
           </div>
+
+          {/* Rating filter — only in gallery mode */}
+          {viewMode === "gallery" && (
+            <div className="flex items-center gap-1">
+              <Star size={12} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
+              {[0, 6, 7, 8, 9].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setMinRating(r)}
+                  className={cn(
+                    "px-2 py-1 rounded-full text-xs font-medium border transition-all",
+                    minRating === r
+                      ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50"
+                      : "bg-bg-card text-text-secondary border-border hover:border-yellow-500/40 hover:text-yellow-400"
+                  )}
+                >
+                  {r === 0 ? "Todas" : `${r}+`}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Sort + view toggle */}
           <div className="flex items-center gap-1 ml-auto">
