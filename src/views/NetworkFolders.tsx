@@ -297,11 +297,10 @@ function maskSmbPath(path: string): string {
 }
 
 export function NetworkFolders() {
-  const { setView, setLocalFileUrl, settings } = useStore();
+  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack } = useStore();
   const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
 
   const [savedFolders, setSavedFolders] = useState<SavedFolder[]>([]);
-  const [browseStack, setBrowseStack] = useState<{ path: string; name: string }[]>([]);
   const [entries, setEntries] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -441,6 +440,14 @@ export function NetworkFolders() {
       .catch(() => {});
   }, []);
 
+  // Restore folder contents when returning from player
+  useEffect(() => {
+    if (browseStack.length > 0 && entries.length === 0) {
+      const top = browseStack[browseStack.length - 1];
+      openFolder(top.path, top.name, false);
+    }
+  }, []);
+
   const openFolder = async (path: string, name: string, push = true) => {
     setError(null);
     setLoading(true);
@@ -450,7 +457,7 @@ export function NetworkFolders() {
     try {
       const result = await invoke<FolderEntry[]>("browse_folder", { path });
       setEntries(result);
-      if (push) setBrowseStack((s) => [...s, { path, name }]);
+      if (push) setFolderBrowseStack([...browseStack, { path, name }]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -460,12 +467,12 @@ export function NetworkFolders() {
 
   const goBack = () => {
     if (browseStack.length <= 1) {
-      setBrowseStack([]);
+      setFolderBrowseStack([]);
       setEntries([]);
       return;
     }
     const newStack = browseStack.slice(0, -1);
-    setBrowseStack(newStack);
+    setFolderBrowseStack(newStack);
     const prev = newStack[newStack.length - 1];
     openFolder(prev.path, prev.name, false);
   };
@@ -533,7 +540,7 @@ export function NetworkFolders() {
   const Breadcrumb = () => (
     <div className="flex items-center gap-1 text-xs text-text-muted min-w-0 overflow-hidden">
       <button
-        onClick={() => { setBrowseStack([]); setEntries([]); }}
+        onClick={() => { setFolderBrowseStack([]); setEntries([]); }}
         className="hover:text-white transition-colors flex-shrink-0"
       >
         Mis Carpetas
@@ -548,7 +555,7 @@ export function NetworkFolders() {
             )}
             onClick={() => {
               const newStack = browseStack.slice(0, i + 1);
-              setBrowseStack(newStack);
+              setFolderBrowseStack(newStack);
               openFolder(newStack[newStack.length - 1].path, newStack[newStack.length - 1].name, false);
             }}
           >
