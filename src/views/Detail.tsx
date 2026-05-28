@@ -89,7 +89,7 @@ function ReviewCard({ review }: { review: { id: string; author: string; content:
 export function Detail() {
   const [trailerState, setTrailerState] = useState<'idle' | 'loading' | 'video' | 'iframe'>('idle');
   const [trailerUrl, setTrailerUrl]       = useState<string | null>(null);
-  const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist } = useStore();
+  const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist, detailReturnView, setDetailReturnView, setLocalFileUrl } = useStore();
   const mediaType = (media as any)?.media_type as "movie" | "tv" | undefined;
   const { reviews } = useMediaReviews(media?.id ?? null, mediaType ?? "movie");
 
@@ -116,7 +116,14 @@ export function Detail() {
       </div>
 
       <div className="relative z-10 px-8 pt-5 pb-8">
-        <button onClick={() => setView("home")} className="btn-ghost mb-8 -ml-2">
+        <button
+          onClick={() => {
+            const back = detailReturnView ?? "home";
+            if (detailReturnView) { setDetailReturnView(null); setLocalFileUrl(null); }
+            setView(back);
+          }}
+          className="btn-ghost mb-8 -ml-2"
+        >
           <ArrowLeft size={16} /> Volver
         </button>
 

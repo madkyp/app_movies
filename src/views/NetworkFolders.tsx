@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { cn, getPosterUrl } from "../lib/utils";
-import { TMDB_FALLBACK_KEY } from "../hooks/useTmdb";
+import { TMDB_FALLBACK_KEY, useMediaDetail } from "../hooks/useTmdb";
 import type { FolderEntry, SavedFolder } from "../types";
 import type { Media } from "../types";
 
@@ -297,7 +297,8 @@ function maskSmbPath(path: string): string {
 }
 
 export function NetworkFolders() {
-  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack } = useStore();
+  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack, setDetailReturnView } = useStore();
+  const { fetchDetail } = useMediaDetail();
   const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
 
   const [savedFolders, setSavedFolders] = useState<SavedFolder[]>([]);
@@ -527,6 +528,19 @@ export function NetworkFolders() {
   const playFile = (entry: FolderEntry) => {
     setLocalFileUrl(entry.path, entry.name);
     setView("player");
+  };
+
+  const openEntry = async (entry: FolderEntry) => {
+    const override = posterOverridesRef.current.get(entry.path);
+    const tmdb = override ?? tmdbMap.get(entry.path) ?? null;
+    if (tmdb?.id && VIDEO_EXTS.has(entry.extension)) {
+      setLocalFileUrl(entry.path, entry.name);
+      setDetailReturnView("folders");
+      await fetchDetail(tmdb.id, "movie");
+      setView("detail");
+    } else {
+      playFile(entry);
+    }
   };
 
   const toggleView = () => {
@@ -887,7 +901,7 @@ export function NetworkFolders() {
                         key={entry.path}
                         entry={entry}
                         media={effectiveMedia}
-                        onPlay={() => playFile(entry)}
+                        onPlay={() => openEntry(entry)}
                         onChangePoster={() => setPickerEntry(entry)}
                       />
                     );
@@ -927,7 +941,7 @@ export function NetworkFolders() {
               {visibleEntries.map((entry) => (
                 <div
                   key={entry.path}
-                  onClick={() => entry.is_dir ? openFolder(entry.path, entry.name) : playFile(entry)}
+                  onClick={() => entry.is_dir ? openFolder(entry.path, entry.name) : openEntry(entry)}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer",
                     entry.is_dir
@@ -951,7 +965,7 @@ export function NetworkFolders() {
                     <ChevronRight size={15} className="text-text-muted flex-shrink-0" />
                   ) : (
                     <button
-                      onClick={(e) => { e.stopPropagation(); playFile(entry); }}
+                      onClick={(e) => { e.stopPropagation(); openEntry(entry); }}
                       className="btn-primary py-1 px-3 text-xs flex-shrink-0 flex items-center gap-1"
                     >
                       <Play size={11} className="fill-white" /> Play

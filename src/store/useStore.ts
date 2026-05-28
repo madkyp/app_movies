@@ -35,6 +35,8 @@ interface AppState {
   setPendingTorrentResume: (r: { magnet: string; episode?: { id?: number; season: number; episode: number; name: string } } | null) => void;
   folderBrowseStack: { path: string; name: string }[];
   setFolderBrowseStack: (stack: { path: string; name: string }[]) => void;
+  detailReturnView: ViewType | null;
+  setDetailReturnView: (view: ViewType | null) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -60,6 +62,7 @@ export const useStore = create<AppState>()(
       localFileTitle: "",
       pendingTorrentResume: null,
       folderBrowseStack: [],
+      detailReturnView: null,
 
       setView: (view) => set({ view }),
       setSelectedMedia: (media) => set({ selectedMedia: media }),
@@ -116,6 +119,7 @@ export const useStore = create<AppState>()(
       setLocalFileUrl: (url, title = "") => set({ localFileUrl: url, localFileTitle: title }),
       setPendingTorrentResume: (r) => set({ pendingTorrentResume: r }),
       setFolderBrowseStack: (stack) => set({ folderBrowseStack: stack }),
+      setDetailReturnView: (view) => set({ detailReturnView: view }),
     }),
     {
       name: "streamdeck-store",
