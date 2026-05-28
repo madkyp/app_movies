@@ -188,7 +188,7 @@ function PosterPickerModal({
                   <div className="aspect-[2/3] rounded-lg overflow-hidden bg-bg-secondary relative">
                     {m.poster_path ? (
                       <img
-                        src={getPosterUrl(m.poster_path, "w185")}
+                        src={getPosterUrl(m.poster_path, "w185") ?? undefined}
                         alt={m.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                       />
