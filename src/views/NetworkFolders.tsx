@@ -11,7 +11,7 @@ import { TMDB_FALLBACK_KEY } from "../hooks/useTmdb";
 import type { FolderEntry, SavedFolder } from "../types";
 import type { Media } from "../types";
 
-type SortKey = "name-asc" | "name-desc" | "ext" | "dirs-first";
+type SortKey = "name-asc" | "name-desc" | "ext" | "dirs-first" | "rating-desc" | "rating-asc";
 type TypeFilter = "all" | "video" | "audio" | "dirs";
 
 const VIDEO_EXTS = new Set(["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "webm", "m2ts", "mpg", "mpeg"]);
@@ -328,6 +328,10 @@ export function NetworkFolders() {
     else if (typeFilter === "audio") list = list.filter((e) => !e.is_dir && AUDIO_EXTS.has(e.extension));
     else if (typeFilter === "dirs") list = list.filter((e) => e.is_dir);
 
+    const getRating = (e: FolderEntry) =>
+      posterOverridesRef.current.get(e.path)?.vote_average ??
+      tmdbMap.get(e.path)?.vote_average ?? 0;
+
     list = [...list].sort((a, b) => {
       if (sortKey === "dirs-first") {
         if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
@@ -339,10 +343,18 @@ export function NetworkFolders() {
         if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
         return a.extension.localeCompare(b.extension) || a.name.localeCompare(b.name);
       }
+      if (sortKey === "rating-desc") {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        return getRating(b) - getRating(a) || a.name.localeCompare(b.name);
+      }
+      if (sortKey === "rating-asc") {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        return getRating(a) - getRating(b) || a.name.localeCompare(b.name);
+      }
       return 0;
     });
     return list;
-  }, [entries, search, sortKey, typeFilter]);
+  }, [entries, search, sortKey, typeFilter, tmdbMap]);
 
   const dirEntries = useMemo(() => visibleEntries.filter((e) => e.is_dir), [visibleEntries]);
   const videoEntries = useMemo(() => {
@@ -790,6 +802,8 @@ export function NetworkFolders() {
                 <option value="name-asc">Nombre A→Z</option>
                 <option value="name-desc">Nombre Z→A</option>
                 <option value="ext">Por extensión</option>
+                <option value="rating-desc">Nota ↓ (mayor primero)</option>
+                <option value="rating-asc">Nota ↑ (menor primero)</option>
               </select>
 
               <button
