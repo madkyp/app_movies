@@ -829,15 +829,17 @@ export function NetworkFolders() {
 
               <button
                 onClick={toggleView}
-                title={viewMode === "gallery" ? "Vista lista" : "Vista galería"}
                 className={cn(
-                  "p-1.5 rounded-lg border transition-all",
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
                   viewMode === "gallery"
                     ? "bg-accent border-accent text-white"
                     : "bg-bg-card border-border text-text-secondary hover:border-accent/50 hover:text-white"
                 )}
               >
-                {viewMode === "gallery" ? <List size={14} /> : <LayoutGrid size={14} />}
+                {viewMode === "gallery"
+                  ? <><List size={13} /> Lista</>
+                  : <><LayoutGrid size={13} /> Galería</>
+                }
               </button>
             </div>
           </div>
