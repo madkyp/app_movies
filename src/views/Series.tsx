@@ -35,6 +35,12 @@ const YEARS: { value: number; label: string }[] = [
   }),
 ];
 
+const SORT_OPTIONS = [
+  { value: "popularity.desc", label: "Más populares" },
+  { value: "vote_average.desc", label: "Mejor puntuadas" },
+  { value: "first_air_date.desc", label: "Más recientes" },
+];
+
 export function Series() {
   const { settings, setView } = useStore();
   const { fetchDetail } = useMediaDetail();
@@ -43,6 +49,7 @@ export function Series() {
   const [genre, setGenre] = useState(0);
   const [year, setYear] = useState(0);
   const [minRating, setMinRating] = useState(0);
+  const [sortBy, setSortBy] = useState("popularity.desc");
   const [page, setPage] = useState(1);
   const [, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -56,7 +63,7 @@ export function Series() {
     return rect.top < window.innerHeight + 200;
   };
 
-  const loadPage = useCallback((pg: number, gn: number, yr: number, rt: number, append: boolean) => {
+  const loadPage = useCallback((pg: number, gn: number, yr: number, rt: number, sb: string, append: boolean) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
@@ -64,12 +71,13 @@ export function Series() {
     const params = new URLSearchParams({
       api_key: apiKey,
       language: "es-ES",
-      sort_by: "popularity.desc",
+      sort_by: sb,
       page: String(pg),
     });
     if (gn) params.set("with_genres", String(gn));
     if (yr) params.set("first_air_date_year", String(yr));
     if (rt) { params.set("vote_average.gte", String(rt)); params.set("vote_count.gte", "50"); }
+    if (sb === "vote_average.desc" && !rt) params.set("vote_count.gte", "100");
 
     fetch(`${TMDB_BASE_URL}/discover/tv?${params}`)
       .then((r) => r.json())
@@ -95,12 +103,12 @@ export function Series() {
     setSeries([]);
     setPage(1);
     setHasMore(true);
-    loadPage(1, genre, year, minRating, false);
-  }, [genre, year, minRating, settings.tmdbApiKey]);
+    loadPage(1, genre, year, minRating, sortBy, false);
+  }, [genre, year, minRating, sortBy, settings.tmdbApiKey]);
 
   useEffect(() => {
     if (page === 1) return;
-    loadPage(page, genre, year, minRating, true);
+    loadPage(page, genre, year, minRating, sortBy, true);
   }, [page]);
 
   useEffect(() => {
@@ -143,8 +151,22 @@ export function Series() {
         ))}
       </div>
 
-      {/* Año + Puntuación */}
+      {/* Ordenar + Año + Puntuación mínima */}
       <div className="flex items-center gap-4 mb-5 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-text-muted text-xs">Ordenar</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{ colorScheme: "dark" }}
+            className="bg-bg-card border border-border text-text-secondary text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-accent/50 hover:border-accent/30 transition-colors"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex items-center gap-2">
           <span className="text-text-muted text-xs">Año</span>
           <select
