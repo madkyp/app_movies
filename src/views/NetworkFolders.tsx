@@ -297,7 +297,7 @@ function maskSmbPath(path: string): string {
 }
 
 export function NetworkFolders() {
-  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack, setDetailReturnView } = useStore();
+  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack, setDetailReturnView, folderViewMode: viewMode, setFolderViewMode } = useStore();
   const { fetchDetail } = useMediaDetail();
   const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
 
@@ -308,9 +308,6 @@ export function NetworkFolders() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("dirs-first");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [viewMode, setViewMode] = useState<"list" | "gallery">(() =>
-    (localStorage.getItem("folders-view-mode") as "list" | "gallery") ?? "list"
-  );
   const [minRating, setMinRating] = useState(0);
   const [tmdbMap, setTmdbMap] = useState<Map<string, Media | null>>(new Map());
   const [pickerEntry, setPickerEntry] = useState<FolderEntry | null>(null);
@@ -543,13 +540,7 @@ export function NetworkFolders() {
     }
   };
 
-  const toggleView = () => {
-    setViewMode((v) => {
-      const next = v === "list" ? "gallery" : "list";
-      localStorage.setItem("folders-view-mode", next);
-      return next;
-    });
-  };
+  const toggleView = () => setFolderViewMode(viewMode === "list" ? "gallery" : "list");
 
   const Breadcrumb = () => (
     <div className="flex items-center gap-1 text-xs text-text-muted min-w-0 overflow-hidden">

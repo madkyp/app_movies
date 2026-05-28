@@ -37,6 +37,8 @@ interface AppState {
   setFolderBrowseStack: (stack: { path: string; name: string }[]) => void;
   detailReturnView: ViewType | null;
   setDetailReturnView: (view: ViewType | null) => void;
+  folderViewMode: "list" | "gallery";
+  setFolderViewMode: (mode: "list" | "gallery") => void;
 }
 
 export const useStore = create<AppState>()(
@@ -63,6 +65,7 @@ export const useStore = create<AppState>()(
       pendingTorrentResume: null,
       folderBrowseStack: [],
       detailReturnView: null,
+      folderViewMode: "list",
 
       setView: (view) => set({ view }),
       setSelectedMedia: (media) => set({ selectedMedia: media }),
@@ -120,10 +123,11 @@ export const useStore = create<AppState>()(
       setPendingTorrentResume: (r) => set({ pendingTorrentResume: r }),
       setFolderBrowseStack: (stack) => set({ folderBrowseStack: stack }),
       setDetailReturnView: (view) => set({ detailReturnView: view }),
+      setFolderViewMode: (mode) => set({ folderViewMode: mode }),
     }),
     {
       name: "streamdeck-store",
-      partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist, history: s.history, watchedEpisodes: s.watchedEpisodes }),
+      partialize: (s) => ({ settings: s.settings, watchlist: s.watchlist, history: s.history, watchedEpisodes: s.watchedEpisodes, folderViewMode: s.folderViewMode }),
     }
   )
 );
