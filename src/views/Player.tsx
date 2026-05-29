@@ -631,24 +631,26 @@ export function Player() {
     const { magnet, episode } = pendingTorrentResume;
     setPendingTorrentResume(null);
 
-    // For series: reconstruct a minimal Episode so handlePlay builds the right histId
-    if (episode) {
-      setSelectedEpisode({
-        id: episode.id ?? 0,
-        episode_number: episode.episode,
-        season_number: episode.season,
-        name: episode.name,
-        overview: "",
-        still_path: null,
-        air_date: null,
-        runtime: null,
-      });
-    }
+    // For series: reconstruct a minimal Episode for the UI header + history id.
+    const resumeEpisode: Episode | null = episode
+      ? {
+          id: episode.id ?? 0,
+          episode_number: episode.episode,
+          season_number: episode.season,
+          name: episode.name,
+          overview: "",
+          still_path: null,
+          air_date: null,
+          runtime: null,
+        }
+      : null;
+    if (resumeEpisode) setSelectedEpisode(resumeEpisode);
 
-    // Slight delay so setSelectedEpisode state update is picked up
-    setTimeout(() => {
-      handlePlay({ magnet, title: "", quality: "", codec: "", size: "", seeds: 1, peers: 0, provider: "historial", language: "unknown" });
-    }, 50);
+    // Pass the episode explicitly so histId is correct regardless of state timing.
+    handlePlay(
+      { magnet, title: "", quality: "", codec: "", size: "", seeds: 1, peers: 0, provider: "historial", language: "unknown" },
+      resumeEpisode,
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingTorrentResume, media?.id]);
 
@@ -720,7 +722,7 @@ export function Player() {
     }
   }, [settings.openSubtitlesApiKey, extSubUrl]);
 
-  const handlePlay = useCallback(async (source: TorrentSource) => {
+  const handlePlay = useCallback(async (source: TorrentSource, episodeOverride?: Episode | null) => {
     if (!source.magnet) return;
     if (streamInfoRef.current || connecting) return; // prevent double-start
     if (source.seeds === 0) {
@@ -730,12 +732,14 @@ export function Player() {
       );
       if (!ok) return;
     }
+    // Use the explicit episode when provided (resume flow), otherwise current selection.
+    const ep = episodeOverride !== undefined ? episodeOverride : selectedEpisode;
     setConnecting(true);
     setBufferError(null);
     setSourcesError(null);
     setResumeToast(null);
     try {
-      const histId = `torrent-${media?.id ?? Date.now()}-${selectedEpisode?.id ?? ""}`;
+      const histId = `torrent-${media?.id ?? Date.now()}-${ep?.id ?? ""}`;
       currentHistoryId.current = histId;
 
       // Check for saved progress before starting
@@ -752,8 +756,8 @@ export function Player() {
       setStreamInfo(info);
       addToHistory({
         id: histId,
-        title: selectedEpisode
-          ? `${title} S${String(selectedEpisode.season_number).padStart(2,"0")}E${String(selectedEpisode.episode_number).padStart(2,"0")}`
+        title: ep
+          ? `${title} S${String(ep.season_number).padStart(2,"0")}E${String(ep.episode_number).padStart(2,"0")}`
           : title,
         poster: media?.poster_path ?? null,
         media_type: isSeries ? "tv" : "movie",
@@ -762,14 +766,14 @@ export function Player() {
         source: "torrent",
         magnet: source.magnet,
         playedAt: Date.now(),
-        episode: selectedEpisode ? { id: selectedEpisode.id, season: selectedEpisode.season_number, episode: selectedEpisode.episode_number, name: selectedEpisode.name } : undefined,
+        episode: ep ? { id: ep.id, season: ep.season_number, episode: ep.episode_number, name: ep.name } : undefined,
       });
     } catch (e) {
       setSourcesError(`Error iniciando torrent: ${e}`);
     } finally {
       setConnecting(false);
     }
-  }, []);
+  }, [connecting, media, selectedEpisode, history, title, isSeries, addToHistory]);
 
   const handleCancelStream = useCallback(() => {
     if (streamInfo) invoke("stop_torrent", { id: streamInfo.id }).catch(() => {});
@@ -1567,16 +1571,6 @@ export function Player() {
               };
               seekFn.current = doSeek;
 
-              const fmtTime = (s: number) => {
-                if (!isFinite(s) || s < 0) return "0:00";
-                const h = Math.floor(s / 3600);
-                const m = Math.floor((s % 3600) / 60);
-                const sec = Math.floor(s % 60);
-                return h > 0
-                  ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`
-                  : `${m}:${String(sec).padStart(2,"0")}`;
-              };
-
               return (
                 <>
                   {resumeToast && (
@@ -1700,7 +1694,7 @@ export function Player() {
 
                       {/* Time */}
                       <span className="text-white/80 text-xs font-mono ml-1 tabular-nums">
-                        {fmtTime(currentTime)}{duration > 0 ? ` / ${fmtTime(duration)}` : ""}
+                        {fmtTimestamp(currentTime)}{duration > 0 ? ` / ${fmtTimestamp(duration)}` : ""}
                       </span>
 
                       <div className="flex-1" />
@@ -2084,7 +2078,7 @@ export function Player() {
         <div className="space-y-2 max-w-2xl">
           {sources.map((s, i) => (
             <div
-              key={i}
+              key={s.magnet || i}
               className="flex items-center gap-4 p-4 rounded-xl border bg-bg-card border-border hover:border-accent/50 hover:bg-bg-hover cursor-pointer transition-all duration-150"
               onClick={() => handlePlay(s)}
             >
