@@ -325,9 +325,11 @@ export function Player() {
     if (isMovie) {
       const searchTitle = (media as any).original_title || title;
       const imdbId = (media as any).imdb_id || (media as any).external_ids?.imdb_id || "";
+      const releaseDate = (media as any).release_date as string | undefined;
+      const year = releaseDate ? parseInt(releaseDate.slice(0, 4)) : undefined;
       setLoadingSources(true);
       setSourcesError(null);
-      invoke<TorrentSource[]>("search_yts", { query: searchTitle, imdbId })
+      invoke<TorrentSource[]>("search_yts", { query: searchTitle, imdbId, year: Number.isFinite(year) ? year : null })
         .then((s) => setSources(sortSources(s)))
         .catch((e) => setSourcesError(String(e)))
         .finally(() => setLoadingSources(false));

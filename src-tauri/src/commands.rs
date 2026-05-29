@@ -901,6 +901,69 @@ fn is_title_relevant(title: &str, query: &str) -> bool {
     matches >= required
 }
 
+// True when the title carries a series-episode marker (SxxExx). Used to drop
+// series episodes from MOVIE searches (e.g. "Haikyu S03E07 Obsession").
+fn title_has_episode_marker(title: &str) -> bool {
+    let b = title.to_lowercase().into_bytes();
+    let n = b.len();
+    let mut i = 0;
+    while i < n {
+        if b[i] == b's' {
+            // 1-2 digits after 's'
+            let mut j = i + 1;
+            let mut d1 = 0;
+            while j < n && b[j].is_ascii_digit() && d1 < 2 { j += 1; d1 += 1; }
+            // then 'e' + 1-2 digits
+            if d1 >= 1 && j < n && b[j] == b'e' {
+                let mut k = j + 1;
+                let mut d2 = 0;
+                while k < n && b[k].is_ascii_digit() && d2 < 2 { k += 1; d2 += 1; }
+                if d2 >= 1 { return true; }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+// Extract standalone 4-digit years (1900-2099) from a string.
+fn extract_years(s: &str) -> Vec<i32> {
+    let b = s.as_bytes();
+    let n = b.len();
+    let mut years = Vec::new();
+    let mut i = 0;
+    while i + 4 <= n {
+        let is_year = b[i].is_ascii_digit() && b[i+1].is_ascii_digit()
+            && b[i+2].is_ascii_digit() && b[i+3].is_ascii_digit();
+        let before_ok = i == 0 || !b[i-1].is_ascii_digit();
+        let after_ok = i + 4 == n || !b[i+4].is_ascii_digit();
+        if is_year && before_ok && after_ok {
+            if let Ok(y) = s[i..i+4].parse::<i32>() {
+                if (1900..=2099).contains(&y) { years.push(y); }
+            }
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    years
+}
+
+// True when the title clearly belongs to a different year than the target movie.
+// Years that also appear in the query (e.g. "Blade Runner 2049") are ignored so
+// they aren't mistaken for a release year. Only rejects when the title has a
+// release-year token and none of them is within ±1 of the target.
+fn year_mismatch(title: &str, query: &str, target: Option<i32>) -> bool {
+    let target = match target { Some(y) if y > 0 => y, _ => return false };
+    let query_years = extract_years(&query.to_lowercase());
+    let title_years: Vec<i32> = extract_years(&title.to_lowercase())
+        .into_iter()
+        .filter(|y| !query_years.contains(y))
+        .collect();
+    if title_years.is_empty() { return false; }
+    !title_years.iter().any(|y| (y - target).abs() <= 1)
+}
+
 fn merge_and_sort(mut sources: Vec<TorrentSource>, query: &str) -> Vec<TorrentSource> {
     // Filter out results unrelated to the search query.
     // Trusted sources (fetched by IMDB ID via Torrentio) are pre-verified — skip check.
@@ -936,7 +999,7 @@ fn merge_and_sort(mut sources: Vec<TorrentSource>, query: &str) -> Vec<TorrentSo
 
 /// Searches in parallel across all sources including Torrentio (when IMDB ID is available).
 #[tauri::command]
-pub async fn search_yts(query: String, imdb_id: Option<String>) -> Result<Vec<TorrentSource>, String> {
+pub async fn search_yts(query: String, imdb_id: Option<String>, year: Option<i32>) -> Result<Vec<TorrentSource>, String> {
     // Use core title for searches (strips "Studio presenta ..." prefixes)
     let core = clean_search_query(&query).to_string();
 
@@ -974,6 +1037,11 @@ pub async fn search_yts(query: String, imdb_id: Option<String>) -> Result<Vec<To
     if let Ok(mut v) = divxtotal { all.append(&mut v); }
     if let Ok(mut v) = dontorrent { all.append(&mut v); }
     if let Ok(mut v) = torrentio { all.append(&mut v); }
+
+    // Movie-specific noise filtering for non-trusted (text-search) results:
+    // drop series episodes and titles from a clearly different year.
+    all.retain(|s| s.trusted
+        || (!title_has_episode_marker(&s.title) && !year_mismatch(&s.title, &core, year)));
 
     Ok(merge_and_sort(all, &core))
 }
