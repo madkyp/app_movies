@@ -78,6 +78,10 @@ export interface AppSettings {
   plexUrl: string;
   plexToken: string;
   openSubtitlesApiKey: string;
+  /** Preferred audio language code ("" = none/auto). Auto-selected when tracks load. */
+  preferredAudioLang?: string;
+  /** Preferred subtitle language code ("" = off). Auto-selected when tracks load. */
+  preferredSubLang?: string;
 }
 
 export interface HistoryEntry {

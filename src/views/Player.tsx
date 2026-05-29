@@ -13,6 +13,35 @@ function looksLikeEpisode(name: string): boolean {
   return /\bS\d{1,2}\s*E\d{1,2}\b/i.test(name) || /\b\d{1,2}x\d{1,2}\b/i.test(name);
 }
 
+// Preferred audio/subtitle language matching ────────────────────────────────
+const LANG_ALIASES: Record<string, string[]> = {
+  es: ["es", "spa", "esp", "spanish", "español", "espanol", "castellano", "cas", "lat", "latino"],
+  en: ["en", "eng", "english", "ingles", "inglés"],
+  fr: ["fr", "fra", "fre", "french", "français", "frances"],
+  de: ["de", "ger", "deu", "german", "aleman", "alemán"],
+  it: ["it", "ita", "italian", "italiano"],
+  pt: ["pt", "por", "portuguese", "portugues", "português"],
+  ja: ["ja", "jpn", "japanese", "japones", "japonés"],
+};
+function trackMatchesLang(t: { language?: string; label?: string }, pref: string): boolean {
+  if (!pref) return false;
+  const aliases = LANG_ALIASES[pref] ?? [pref];
+  const hay = `${t.language ?? ""} ${t.label ?? ""}`.toLowerCase();
+  return aliases.some((a) => hay.includes(a));
+}
+// Returns the matching audio track's index, or null when no preference/match.
+function pickPreferredAudio(audio: { index: number; language: string; label: string }[], pref: string): number | null {
+  if (!pref) return null;
+  const m = audio.find((t) => trackMatchesLang(t, pref));
+  return m ? m.index : null;
+}
+// Returns the matching text subtitle track's index, or null.
+function pickPreferredSub(subs: { index: number; language: string; label: string; is_text: boolean }[], pref: string): number | null {
+  if (!pref) return null;
+  const m = subs.find((t) => t.is_text && trackMatchesLang(t, pref));
+  return m ? m.index : null;
+}
+
 function fmtTimestamp(s: number): string {
   if (!isFinite(s) || s < 0) return "0:00";
   const h = Math.floor(s / 3600);
@@ -294,6 +323,7 @@ export function Player() {
   const startOffsetRef = useRef(0);
   const currentHistoryId = useRef<string | null>(null);
   const pendingResumeAt = useRef(0); // for torrent: seek target after tracksReady
+  const pendingEpisodeRef = useRef<{ season: number; episode: number } | null>(null); // "Continuar viendo" target
   const seekFn = useRef<((t: number) => void) | null>(null);
   const isBufferingRef = useRef(false); // for stable access in video onError handlers
   const plexRetries = useRef(0);        // retry count when Plex seek errors
@@ -310,12 +340,36 @@ export function Player() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  // ── Default season when media changes ────────────────────────────────────────
+  // ── Default season: land on the last-watched season when available ───────────
   useEffect(() => {
     if (isSeries && seasons.length > 0 && selectedSeason == null) {
-      setSelectedSeason(seasons[0].season_number);
+      const lastEp = history
+        .filter((h) => h.tmdb_id === mediaId && h.episode)
+        .sort((a, b) => b.playedAt - a.playedAt)[0]?.episode;
+      const target = lastEp && seasons.some((s: any) => s.season_number === lastEp.season)
+        ? lastEp.season
+        : seasons[0].season_number;
+      setSelectedSeason(target);
     }
-  }, [isSeries, seasons, selectedSeason]);
+  }, [isSeries, seasons, selectedSeason, history, mediaId]);
+
+  // Pending episode auto-select (used by "Continuar viendo" across seasons).
+  useEffect(() => {
+    const pending = pendingEpisodeRef.current;
+    if (!pending || loadingEpisodes || episodes.length === 0) return;
+    if (selectedSeason !== pending.season) return;
+    const ep = episodes.find((e) => e.episode_number === pending.episode);
+    if (ep) {
+      pendingEpisodeRef.current = null;
+      setSelectedEpisode(ep);
+    } else if (seasons.some((s: any) => s.season_number === pending.season + 1)) {
+      // Requested episode is past this season's end → jump to next season E01.
+      pendingEpisodeRef.current = { season: pending.season + 1, episode: 1 };
+      setSelectedSeason(pending.season + 1);
+    } else {
+      pendingEpisodeRef.current = null;
+    }
+  }, [episodes, loadingEpisodes, selectedSeason, seasons]);
 
   // ── Fetch sources (movie immediately, series only after episode selected) ────
   useEffect(() => {
@@ -461,6 +515,10 @@ export function Player() {
       .then((t: VideoTracks) => {
         setTracks(t);
         if (t.duration_secs > 0) setDuration(t.duration_secs);
+        const a = pickPreferredAudio(t.audio, settings.preferredAudioLang ?? "");
+        if (a != null) setSelectedAudio(a);
+        const s = pickPreferredSub(t.subtitles, settings.preferredSubLang ?? "");
+        if (s != null) setSelectedSub(s);
         setTracksReady(true);
       })
       .catch(() => { setTracksReady(true); }); // fail silently but still proceed
@@ -560,6 +618,10 @@ export function Player() {
       .then((t: VideoTracks) => {
         setTracks(t);
         if (t.duration_secs > 0) setDuration(t.duration_secs);
+        const a = pickPreferredAudio(t.audio, settings.preferredAudioLang ?? "");
+        if (a != null) setSelectedAudio(a);
+        const s = pickPreferredSub(t.subtitles, settings.preferredSubLang ?? "");
+        if (s != null) setSelectedSub(s);
       })
       .catch(() => {});
   }, [effectiveLocalPath]);
@@ -1900,6 +1962,46 @@ export function Player() {
 
   // ── Series: Season tabs + Episode list (when no episode selected yet) ───────
   if (isSeries && !selectedEpisode) {
+    // Compute the "Continuar viendo" target from history (resume in-progress, else next).
+    const lastWatched = history
+      .filter((h) => h.tmdb_id === mediaId && h.episode)
+      .sort((a, b) => b.playedAt - a.playedAt)[0];
+    let continueTarget: { season: number; episode: number; resume: boolean } | null = null;
+    if (lastWatched?.episode) {
+      const { season, episode } = lastWatched.episode;
+      const inProgress = !!lastWatched.progressSecs && lastWatched.progressSecs > 30
+        && !!lastWatched.durationSecs && lastWatched.progressSecs < lastWatched.durationSecs * 0.9;
+      continueTarget = inProgress
+        ? { season, episode, resume: true }
+        : { season, episode: episode + 1, resume: false };
+    } else if (seasons.length > 0) {
+      continueTarget = { season: seasons[0].season_number, episode: 1, resume: false };
+    }
+
+    const goToContinue = () => {
+      if (!continueTarget) return;
+      if (continueTarget.season === selectedSeason && !loadingEpisodes) {
+        const ep = episodes.find((e) => e.episode_number === continueTarget!.episode);
+        if (ep) { setSelectedEpisode(ep); return; }
+        // Past the end of this season → next season E01 via the pending mechanism.
+        if (seasons.some((s: any) => s.season_number === continueTarget!.season + 1)) {
+          pendingEpisodeRef.current = { season: continueTarget.season + 1, episode: 1 };
+          setSelectedSeason(continueTarget.season + 1);
+        }
+        return;
+      }
+      pendingEpisodeRef.current = { season: continueTarget.season, episode: continueTarget.episode };
+      setSelectedSeason(continueTarget.season);
+    };
+
+    const continueLabel = continueTarget
+      ? continueTarget.resume
+        ? `Continuar T${continueTarget.season} · E${continueTarget.episode}`
+        : lastWatched
+          ? `Siguiente · T${continueTarget.season} E${continueTarget.episode}`
+          : "Empezar serie"
+      : "";
+
     return (
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <button onClick={() => setView("detail")} className="btn-ghost mb-5 -ml-2">
@@ -1908,6 +2010,12 @@ export function Player() {
 
         <h1 className="text-white text-xl font-bold mb-1">{title}</h1>
         <p className="text-text-secondary text-sm mb-5">Selecciona una temporada y un episodio</p>
+
+        {continueTarget && (
+          <button onClick={goToContinue} className="btn-primary mb-5 py-2.5 px-5 flex items-center gap-2">
+            <Play size={15} className="fill-white" /> {continueLabel}
+          </button>
+        )}
 
         {bufferError && (
           <div className="flex items-center gap-3 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm max-w-4xl mb-4">
@@ -2079,6 +2187,10 @@ export function Player() {
     ? `Temporada ${selectedEpisode.season_number} · Episodio ${selectedEpisode.episode_number} · ${selectedEpisode.name}`
     : "Selecciona una fuente para reproducir";
 
+  // Last source used for this exact title/episode (remembered from history).
+  const lastSourceHistId = `torrent-${media?.id ?? ""}-${selectedEpisode?.id ?? ""}`;
+  const lastSource = history.find((h) => h.id === lastSourceHistId && h.magnet);
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5">
       <button onClick={handleBack} className="btn-ghost mb-5 -ml-2">
@@ -2087,6 +2199,19 @@ export function Player() {
 
       <h1 className="text-white text-xl font-bold mb-1">{title}</h1>
       <p className="text-text-secondary text-sm mb-6">{subtitleLabel}</p>
+
+      {!connecting && lastSource?.magnet && (
+        <button
+          onClick={() => handlePlay({ magnet: lastSource.magnet!, title: "", quality: "", codec: "", size: "", seeds: 1, peers: 0, provider: "anterior", language: "unknown" })}
+          className="btn-primary w-full max-w-2xl mb-4 py-2.5 flex items-center justify-center gap-2"
+        >
+          <Play size={14} className="fill-white" />
+          Continuar con la última fuente
+          {lastSource.progressSecs && lastSource.durationSecs && lastSource.progressSecs < lastSource.durationSecs * 0.9
+            ? ` · ${fmtTimestamp(lastSource.progressSecs)}`
+            : ""}
+        </button>
+      )}
 
       {connecting && (
         <div className="flex flex-col items-center justify-center py-16 gap-4">

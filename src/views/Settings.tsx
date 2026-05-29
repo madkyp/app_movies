@@ -1,4 +1,4 @@
-import { Save, Key, Info, Server, ExternalLink, HardDrive, Trash2 } from "lucide-react";
+import { Save, Key, Info, Server, ExternalLink, HardDrive, Trash2, Languages } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -144,6 +144,54 @@ export function Settings() {
           <button onClick={() => saveField("os", { openSubtitlesApiKey: osKey })} className="btn-primary text-xs py-2">
             <Save size={13} /> {saved === "os" ? "¡Guardado!" : "Guardar"}
           </button>
+        </div>
+
+        {/* Preferencias de reproducción */}
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Languages size={15} className="text-accent" />
+            <h3 className="text-white font-semibold text-sm">Idioma preferido</h3>
+          </div>
+          <p className="text-text-muted text-xs mb-4">
+            Al reproducir, se seleccionará automáticamente la pista de audio y los subtítulos en el idioma elegido si están disponibles.
+          </p>
+
+          <label className="text-text-secondary text-xs font-medium mb-1 block">Audio</label>
+          <select
+            value={settings.preferredAudioLang ?? ""}
+            onChange={(e) => saveField("audiolang", { preferredAudioLang: e.target.value })}
+            style={{ colorScheme: "dark" }}
+            className="input-search mb-3 text-xs cursor-pointer"
+          >
+            <option value="">Original / automático</option>
+            <option value="es">Español</option>
+            <option value="en">Inglés</option>
+            <option value="fr">Francés</option>
+            <option value="de">Alemán</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Portugués</option>
+            <option value="ja">Japonés</option>
+          </select>
+
+          <label className="text-text-secondary text-xs font-medium mb-1 block">Subtítulos</label>
+          <select
+            value={settings.preferredSubLang ?? ""}
+            onChange={(e) => saveField("sublang", { preferredSubLang: e.target.value })}
+            style={{ colorScheme: "dark" }}
+            className="input-search text-xs cursor-pointer"
+          >
+            <option value="">Desactivados</option>
+            <option value="es">Español</option>
+            <option value="en">Inglés</option>
+            <option value="fr">Francés</option>
+            <option value="de">Alemán</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Portugués</option>
+            <option value="ja">Japonés</option>
+          </select>
+          {(saved === "audiolang" || saved === "sublang") && (
+            <p className="text-green-400 text-xs mt-2">✓ Guardado</p>
+          )}
         </div>
 
         {/* Cache */}

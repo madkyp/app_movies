@@ -51,6 +51,17 @@ function lsSave(key: string, map: Map<string, unknown>) {
   } catch {}
 }
 
+// Detect a season folder ("Temporada 2", "Season 2", "S02", or just "2")
+function isSeasonFolder(name: string): boolean {
+  const n = name.trim();
+  return /\b(?:temporada|season|temp)\b/i.test(n) || /^s\d{1,2}$/i.test(n) || /^\d{1,2}$/.test(n);
+}
+// Extract a season number for ordering (first 1-3 digit run); large fallback.
+function seasonNumber(name: string): number {
+  const m = name.match(/\d{1,3}/);
+  return m ? parseInt(m[0]) : 9999;
+}
+
 // ── Module-level caches (persist across folder navigations + app restarts) ───
 const tmdbCache: Map<string, Media | null> = lsLoad<Media>(LS_CACHE_KEY);
 const posterOverrides: Map<string, Media> = new Map(
@@ -531,6 +542,42 @@ export function NetworkFolders() {
     setLocalPlaylist(siblings);
     setLocalFileUrl(entry.path, entry.name);
     setView("player");
+    // In the background, expand the playlist across sibling season folders so
+    // autoplay can continue into the next season (Temporada 1 → Temporada 2).
+    expandSeasonPlaylist(siblings);
+  };
+
+  // If the current folder is a season folder, gather episodes from all sibling
+  // season folders (ordered by season number) into one continuous playlist.
+  const expandSeasonPlaylist = async (currentVids: { path: string; name: string }[]) => {
+    if (browseStack.length < 2) return; // no parent → can't cross folders
+    const current = browseStack[browseStack.length - 1];
+    const parent = browseStack[browseStack.length - 2];
+    if (!isSeasonFolder(current.name)) return;
+    try {
+      const parentEntries = await invoke<FolderEntry[]>("browse_folder", { path: parent.path });
+      const seasonDirs = parentEntries
+        .filter((e) => e.is_dir && isSeasonFolder(e.name))
+        .sort((a, b) => seasonNumber(a.name) - seasonNumber(b.name) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      if (seasonDirs.length <= 1) return; // only this season exists
+
+      const combined: { path: string; name: string }[] = [];
+      for (const dir of seasonDirs) {
+        if (dir.path === current.path) {
+          combined.push(...currentVids);
+          continue;
+        }
+        const de = await invoke<FolderEntry[]>("browse_folder", { path: dir.path });
+        const vids = de
+          .filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension))
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          .map((e) => ({ path: e.path, name: e.name }));
+        combined.push(...vids);
+      }
+      if (combined.length > currentVids.length) setLocalPlaylist(combined);
+    } catch {
+      // keep the single-folder playlist on any error
+    }
   };
 
   const openEntry = async (entry: FolderEntry) => {

@@ -55,6 +55,8 @@ export const useStore = create<AppState>()(
         plexUrl: "",
         plexToken: "",
         openSubtitlesApiKey: "",
+        preferredAudioLang: "",
+        preferredSubLang: "",
       },
       watchlist: [],
       history: [],
