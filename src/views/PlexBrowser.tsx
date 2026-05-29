@@ -6,6 +6,7 @@ import {
 import { usePlexLibraries, usePlexLibraryItems, usePlexChildren, usePlexConfig, plexAssetUrl, plexStreamUrl } from "../hooks/usePlex";
 import { useStore } from "../store/useStore";
 import { cn } from "../lib/utils";
+import { NextEpisodeOverlay } from "../components/player/NextEpisodeOverlay";
 import type { PlexLibrary, PlexItem } from "../types";
 
 function fmtMs(ms?: number) {
@@ -34,11 +35,15 @@ function PlexPlayer({
   rawUrl,
   durationSecs,
   title,
+  nextTitle,
+  onPlayNext,
   onClose,
 }: {
   rawUrl: string;
   durationSecs: number;
   title: string;
+  nextTitle?: string | null;
+  onPlayNext?: () => void;
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -52,6 +57,7 @@ function PlexPlayer({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [startOffset, setStartOffset] = useState(0);
+  const [showNext, setShowNext] = useState(false);
 
   const transcodeUrl = `${PLEX_PROXY}/play/plex?url=${encodeURIComponent(rawUrl)}${startOffset > 0.5 ? `&start=${startOffset}` : ""}`;
   // Reset buffering state on seek-restart
@@ -105,12 +111,22 @@ function PlexPlayer({
           onWaiting={() => setIsBuffering(true)}
           onCanPlay={() => setIsBuffering(false)}
           onError={() => setHasError(true)}
+          onEnded={() => { if (onPlayNext && nextTitle) setShowNext(true); }}
           onVolumeChange={() => {
             if (!videoRef.current) return;
             setVolume(videoRef.current.volume);
             setIsMuted(videoRef.current.muted);
           }}
         />
+
+        {showNext && nextTitle && onPlayNext && (
+          <NextEpisodeOverlay
+            title={nextTitle}
+            accentColor="#fb923c"
+            onPlay={() => { setShowNext(false); onPlayNext(); }}
+            onCancel={() => setShowNext(false)}
+          />
+        )}
         {/* Buffering / error overlay */}
         {(isBuffering || hasError) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">
@@ -301,12 +317,28 @@ export function PlexBrowser() {
   const [activeLibrary, setActiveLibrary] = useState<PlexLibrary | null>(null);
   const [selectedShow, setSelectedShow] = useState<PlexItem | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<PlexItem | null>(null);
-  const [playingItem, setPlayingItem] = useState<{ rawUrl: string; durationSecs: number; title: string } | null>(null);
+  const [playingItem, setPlayingItem] = useState<{ rawUrl: string; durationSecs: number; title: string; next: PlexItem | null } | null>(null);
 
   const { libraries, loading: loadingLibs, error: libError, refetch } = usePlexLibraries();
   const { items: libraryItems, loading: loadingItems } = usePlexLibraryItems(activeLibrary?.key ?? null);
   const { children: seasons, loading: loadingSeasons } = usePlexChildren(selectedShow?.ratingKey ?? null);
   const { children: episodes, loading: loadingEpisodes } = usePlexChildren(selectedSeason?.ratingKey ?? null);
+
+  const episodeLabel = (item: PlexItem) =>
+    item.type === "episode"
+      ? `${item.grandparentTitle ?? item.parentTitle ?? ""} · S${String(item.parentIndex ?? 0).padStart(2, "0")}E${String(item.index ?? 0).padStart(2, "0")} · ${item.title}`
+      : item.title;
+
+  const playItem = (item: PlexItem) => {
+    const rawUrl = plexStreamUrl(plexUrl, plexToken, item);
+    if (!rawUrl) return;
+    let next: PlexItem | null = null;
+    if (item.type === "episode") {
+      const idx = episodes.findIndex((e) => e.ratingKey === item.ratingKey);
+      if (idx >= 0 && idx + 1 < episodes.length) next = episodes[idx + 1];
+    }
+    setPlayingItem({ rawUrl, durationSecs: item.duration ? item.duration / 1000 : 0, title: episodeLabel(item), next });
+  };
 
   // ── Not configured ───────────────────────────────────────────────────────────
   if (!plexUrl || !plexToken) {
@@ -325,22 +357,16 @@ export function PlexBrowser() {
   if (playingItem) {
     return (
       <PlexPlayer
+        key={playingItem.rawUrl}
         rawUrl={playingItem.rawUrl}
         durationSecs={playingItem.durationSecs}
         title={playingItem.title}
+        nextTitle={playingItem.next ? episodeLabel(playingItem.next) : null}
+        onPlayNext={playingItem.next ? () => playItem(playingItem.next!) : undefined}
         onClose={() => setPlayingItem(null)}
       />
     );
   }
-
-  const playItem = (item: PlexItem) => {
-    const rawUrl = plexStreamUrl(plexUrl, plexToken, item);
-    if (!rawUrl) return;
-    const label = item.type === "episode"
-      ? `${item.grandparentTitle ?? item.parentTitle ?? ""} · S${String(item.parentIndex ?? 0).padStart(2, "0")}E${String(item.index ?? 0).padStart(2, "0")} · ${item.title}`
-      : item.title;
-    setPlayingItem({ rawUrl, durationSecs: item.duration ? item.duration / 1000 : 0, title: label });
-  };
 
   // ── Breadcrumb navigation ────────────────────────────────────────────────────
   const goBack = () => {

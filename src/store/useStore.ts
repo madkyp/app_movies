@@ -39,6 +39,8 @@ interface AppState {
   setDetailReturnView: (view: ViewType | null) => void;
   folderViewMode: "list" | "gallery";
   setFolderViewMode: (mode: "list" | "gallery") => void;
+  localPlaylist: { path: string; name: string }[];
+  setLocalPlaylist: (list: { path: string; name: string }[]) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -66,6 +68,7 @@ export const useStore = create<AppState>()(
       folderBrowseStack: [],
       detailReturnView: null,
       folderViewMode: "list",
+      localPlaylist: [],
 
       setView: (view) => set({ view }),
       setSelectedMedia: (media) => set({ selectedMedia: media }),
@@ -124,6 +127,7 @@ export const useStore = create<AppState>()(
       setFolderBrowseStack: (stack) => set({ folderBrowseStack: stack }),
       setDetailReturnView: (view) => set({ detailReturnView: view }),
       setFolderViewMode: (mode) => set({ folderViewMode: mode }),
+      setLocalPlaylist: (list) => set({ localPlaylist: list }),
     }),
     {
       name: "streamdeck-store",

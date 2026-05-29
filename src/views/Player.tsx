@@ -6,6 +6,12 @@ import { useSeasonEpisodes } from "../hooks/useTmdb";
 import { cn, TMDB_IMAGE_BASE } from "../lib/utils";
 import type { TorrentSource, Episode, SubtitleResult } from "../types";
 import { MpvOverlay } from "../components/player/MpvOverlay";
+import { NextEpisodeOverlay } from "../components/player/NextEpisodeOverlay";
+
+// Detect an episode marker (S01E02, 1x02) in a filename → treat folder as a series
+function looksLikeEpisode(name: string): boolean {
+  return /\bS\d{1,2}\s*E\d{1,2}\b/i.test(name) || /\b\d{1,2}x\d{1,2}\b/i.test(name);
+}
 
 function fmtTimestamp(s: number): string {
   if (!isFinite(s) || s < 0) return "0:00";
@@ -203,7 +209,10 @@ function sortSources(sources: TorrentSource[]): TorrentSource[] {
 
 export function Player() {
   // ── Hooks (all unconditional) ────────────────────────────────────────────────
-  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings, pendingTorrentResume, setPendingTorrentResume, watchedEpisodes, markEpisodeWatched, markEpisodeUnwatched } = useStore();
+  const { selectedMedia: media, setView, plexDirectUrl, plexDirectDuration, setPlexDirectUrl, localFileUrl, localFileTitle, setLocalFileUrl, addToHistory, updateHistoryProgress, history, settings, pendingTorrentResume, setPendingTorrentResume, watchedEpisodes, markEpisodeWatched, markEpisodeUnwatched, localPlaylist } = useStore();
+
+  // Next-episode autoplay (local folder series)
+  const [showNextLocal, setShowNextLocal] = useState(false);
 
   // SMB: download to local cache before playing
   const [effectiveLocalPath, setEffectiveLocalPath] = useState<string | null>(null);
@@ -498,6 +507,7 @@ export function Player() {
     setUseMpvMode(false);
     setSmbError(null);
     setResumeToast(null);
+    setShowNextLocal(false);
 
     // Check history for a saved position before resetting startOffset
     const histId = `local-${localFileUrl}`;
@@ -909,6 +919,19 @@ export function Player() {
     const displayTime = isSeeking ? seekValue : currentTime;
     const pct = duration > 0 ? Math.min(displayTime / duration, 1) : 0;
 
+    // Next episode in the folder playlist (only when this file looks like an episode)
+    const curIdx = localPlaylist.findIndex((p) => p.path === localFileUrl);
+    const nextLocal =
+      curIdx >= 0 && curIdx + 1 < localPlaylist.length && looksLikeEpisode(localFileUrl)
+        ? localPlaylist[curIdx + 1]
+        : null;
+    const playNextLocal = () => {
+      if (!nextLocal) return;
+      setShowNextLocal(false);
+      setStartOffset(0);
+      setLocalFileUrl(nextLocal.path, nextLocal.name);
+    };
+
     return (
       <div className="flex-1 flex flex-col bg-black overflow-hidden">
         <div className="flex items-center gap-4 px-4 py-2 bg-bg-primary/90 border-b border-border text-xs text-text-secondary flex-shrink-0">
@@ -1012,9 +1035,21 @@ export function Player() {
               setVolume(videoRef.current.volume);
               setIsMuted(videoRef.current.muted);
             }}
+            onEnded={() => {
+              if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+              if (nextLocal) setShowNextLocal(true);
+            }}
           >
             {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
           </video>
+
+          {showNextLocal && nextLocal && (
+            <NextEpisodeOverlay
+              title={nextLocal.name.replace(/\.[^.]+$/, "")}
+              onPlay={playNextLocal}
+              onCancel={() => setShowNextLocal(false)}
+            />
+          )}
 
           {(isBuffering || localVideoError) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 pointer-events-none">

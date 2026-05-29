@@ -297,7 +297,7 @@ function maskSmbPath(path: string): string {
 }
 
 export function NetworkFolders() {
-  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack, setDetailReturnView, folderViewMode: viewMode, setFolderViewMode } = useStore();
+  const { setView, setLocalFileUrl, settings, folderBrowseStack: browseStack, setFolderBrowseStack, setDetailReturnView, folderViewMode: viewMode, setFolderViewMode, setLocalPlaylist } = useStore();
   const { fetchDetail } = useMediaDetail();
   const apiKey = settings.tmdbApiKey || TMDB_FALLBACK_KEY;
 
@@ -523,6 +523,12 @@ export function NetworkFolders() {
   };
 
   const playFile = (entry: FolderEntry) => {
+    // Build a playlist of sibling video files (name order) for next-episode autoplay
+    const siblings = entries
+      .filter((e) => !e.is_dir && VIDEO_EXTS.has(e.extension))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      .map((e) => ({ path: e.path, name: e.name }));
+    setLocalPlaylist(siblings);
     setLocalFileUrl(entry.path, entry.name);
     setView("player");
   };
@@ -531,6 +537,7 @@ export function NetworkFolders() {
     const override = posterOverridesRef.current.get(entry.path);
     const tmdb = override ?? tmdbMap.get(entry.path) ?? null;
     if (tmdb?.id && VIDEO_EXTS.has(entry.extension)) {
+      setLocalPlaylist([]); // a movie has no "next episode"
       setLocalFileUrl(entry.path, entry.name);
       setDetailReturnView("folders");
       await fetchDetail(tmdb.id, "movie");
