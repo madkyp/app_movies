@@ -500,6 +500,85 @@ async fn h_play_plex(
         .unwrap()
 }
 
+// /play/youtube?video=URL&audio=URL — mux separate YouTube 1080p video + audio
+// streams (DASH) into a single fragmented MP4 the in-app <video> can play.
+#[derive(serde::Deserialize)]
+struct YoutubePlayParams {
+    video: String,
+    audio: String,
+}
+
+async fn h_play_youtube(Query(params): Query<YoutubePlayParams>) -> Response {
+    let (vcodec, _) = probe_codecs(&params.video).await;
+    let (_, acodec) = probe_codecs(&params.audio).await;
+    let can_copy_video = vcodec == "h264";
+    let can_copy_audio = acodec == "aac";
+    log::warn!("[ffmpeg-yt] vcodec={vcodec} acodec={acodec} copy_v={can_copy_video} copy_a={can_copy_audio}");
+
+    let reconnect = [
+        "-reconnect".to_string(), "1".into(),
+        "-reconnect_streamed".into(), "1".into(),
+        "-reconnect_delay_max".into(), "5".into(),
+        "-reconnect_on_network_error".into(), "1".into(),
+    ];
+
+    let mut args: Vec<String> = vec!["-v".into(), "error".into()];
+    if !can_copy_video {
+        args.extend(["-hwaccel".into(), "auto".into()]);
+    }
+    // Reconnect options are per-input → repeat before each -i.
+    args.extend(reconnect.clone());
+    args.extend(["-i".into(), params.video]);
+    args.extend(reconnect);
+    args.extend(["-i".into(), params.audio]);
+    args.extend([
+        "-map".into(), "0:v:0".into(),
+        "-map".into(), "1:a:0".into(),
+    ]);
+    args.extend(build_codec_args(can_copy_video, can_copy_audio));
+    args.extend([
+        "-sn".into(),
+        "-f".into(), "mp4".into(),
+        "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof".into(),
+        "pipe:1".into(),
+    ]);
+
+    let mut child = match proc_cmd(ffmpeg_bin())
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(format!("ffmpeg not found: {e}")))
+            .unwrap(),
+    };
+
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let reader = tokio::io::BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[ffmpeg-yt] {}", line);
+            }
+        });
+    }
+
+    let stdout = child.stdout.take().unwrap();
+    let body_stream = tokio_util::io::ReaderStream::new(stdout);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from_stream(body_stream))
+        .unwrap()
+}
+
 // /tracks/{id}/{file_id} — ffprobe the stream to discover audio/subtitle tracks.
 async fn h_tracks(
     Path((id, file_id)): Path<(usize, usize)>,
@@ -851,6 +930,7 @@ impl TorrentManager {
             .route("/stream/{id}/{file_id}", get(h_stream))
             .route("/play/{id}/{file_id}", get(h_play))
             .route("/play/plex", get(h_play_plex))
+            .route("/play/youtube", get(h_play_youtube))
             .route("/play/local", get(h_play_local))
             .route("/tracks/{id}/{file_id}", get(h_tracks))
             .route("/tracks/local", get(h_tracks_local))

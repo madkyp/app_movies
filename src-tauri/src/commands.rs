@@ -92,9 +92,14 @@ fn proc_cmd(bin: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
 #[tauri::command]
 pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> {
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    // Formats 18 (360p mp4) and 22 (720p mp4) are always single-file with audio
+    // Prefer 1080p H264 video + m4a/AAC audio as SEPARATE streams (YouTube only
+    // serves ≤720p as a single progressive file). --get-url then prints two lines
+    // (video, then audio) which we mux on the fly via the local ffmpeg server.
+    // Falls back to single-file 720p/360p when a merged 1080p set isn't available.
+    let format = "bestvideo[height<=1080][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/\
+                  bestvideo[height<=1080][ext=mp4]+bestaudio/22/18/best[ext=mp4]/best";
     let out = proc_cmd(ytdlp_bin())
-        .args(["-f", "22/18/best[ext=mp4]/best", "--get-url", "--no-playlist", &url])
+        .args(["-f", format, "--get-url", "--no-playlist", &url])
         .output()
         .await
         .map_err(|_| "yt-dlp no encontrado".to_string())?;
@@ -105,11 +110,18 @@ pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> 
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let stream_url = stdout.lines().next().unwrap_or("").trim().to_string();
-    if stream_url.is_empty() {
-        return Err("yt-dlp no devolvió ninguna URL".to_string());
+    let urls: Vec<&str> = stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    match urls.as_slice() {
+        // Two streams → route through the ffmpeg muxer so the <video> gets one MP4.
+        [video, audio, ..] => Ok(format!(
+            "http://127.0.0.1:7777/play/youtube?video={}&audio={}",
+            urlencoding::encode(video),
+            urlencoding::encode(audio),
+        )),
+        // Single progressive stream → play directly.
+        [single] => Ok(single.to_string()),
+        [] => Err("yt-dlp no devolvió ninguna URL".to_string()),
     }
-    Ok(stream_url)
 }
 
 // ─── Shared State ─────────────────────────────────────────────────────────────

@@ -284,6 +284,7 @@ export function Detail() {
                       src={trailerUrl}
                       autoPlay
                       controls
+                      onError={() => setTrailerState('iframe')}
                     />
                   )}
 
