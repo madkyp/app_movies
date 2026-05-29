@@ -58,6 +58,7 @@ function PlexPlayer({
   const [isMuted, setIsMuted] = useState(false);
   const [startOffset, setStartOffset] = useState(0);
   const [showNext, setShowNext] = useState(false);
+  const nextHandledRef = useRef(false); // next-episode popup already shown/dismissed
 
   const transcodeUrl = `${PLEX_PROXY}/play/plex?url=${encodeURIComponent(rawUrl)}${startOffset > 0.5 ? `&start=${startOffset}` : ""}`;
   // Reset buffering state on seek-restart
@@ -105,13 +106,19 @@ function PlexPlayer({
           autoPlay
           className="w-full h-full cursor-pointer"
           onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-          onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
+          onTimeUpdate={() => {
+            const t = startOffset + (videoRef.current?.currentTime ?? 0);
+            setCurrentTime(t);
+            if (onPlayNext && nextTitle && duration > 0 && t >= duration - 5 && !nextHandledRef.current) {
+              setShowNext(true);
+            }
+          }}
           onPlay={() => { setIsPlaying(true); setIsBuffering(false); }}
           onPause={() => setIsPlaying(false)}
           onWaiting={() => setIsBuffering(true)}
           onCanPlay={() => setIsBuffering(false)}
           onError={() => setHasError(true)}
-          onEnded={() => { if (onPlayNext && nextTitle) setShowNext(true); }}
+          onEnded={() => { if (onPlayNext && nextTitle && !nextHandledRef.current) setShowNext(true); }}
           onVolumeChange={() => {
             if (!videoRef.current) return;
             setVolume(videoRef.current.volume);
@@ -123,8 +130,8 @@ function PlexPlayer({
           <NextEpisodeOverlay
             title={nextTitle}
             accentColor="#fb923c"
-            onPlay={() => { setShowNext(false); onPlayNext(); }}
-            onCancel={() => setShowNext(false)}
+            onPlay={() => { nextHandledRef.current = true; setShowNext(false); onPlayNext(); }}
+            onCancel={() => { nextHandledRef.current = true; setShowNext(false); }}
           />
         )}
         {/* Buffering / error overlay */}

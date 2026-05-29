@@ -301,6 +301,7 @@ export function Player() {
   const torrentRetries = useRef(0);     // retry count when torrent video errors on startup
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlayTimeRef = useRef<number>(0); // timestamp of last onPlay — used for fast reconnect after pause
+  const nextLocalHandledRef = useRef(false); // next-episode popup already shown/dismissed for this file
 
   // Resume toast: non-null when we auto-resumed from history
   const [resumeToast, setResumeToast] = useState<{ at: number } | null>(null);
@@ -508,6 +509,7 @@ export function Player() {
     setSmbError(null);
     setResumeToast(null);
     setShowNextLocal(false);
+    nextLocalHandledRef.current = false;
 
     // Check history for a saved position before resetting startOffset
     const histId = `local-${localFileUrl}`;
@@ -927,9 +929,14 @@ export function Player() {
         : null;
     const playNextLocal = () => {
       if (!nextLocal) return;
+      nextLocalHandledRef.current = true;
       setShowNextLocal(false);
       setStartOffset(0);
       setLocalFileUrl(nextLocal.path, nextLocal.name);
+    };
+    const dismissNextLocal = () => {
+      nextLocalHandledRef.current = true;
+      setShowNextLocal(false);
     };
 
     return (
@@ -963,7 +970,13 @@ export function Player() {
             autoPlay
             className="w-full h-full cursor-pointer"
             onClick={() => { const v = videoRef.current; if (!v) return; v.paused ? v.play() : v.pause(); }}
-            onTimeUpdate={() => setCurrentTime(startOffset + (videoRef.current?.currentTime ?? 0))}
+            onTimeUpdate={() => {
+              const t = startOffset + (videoRef.current?.currentTime ?? 0);
+              setCurrentTime(t);
+              if (nextLocal && duration > 0 && t >= duration - 5 && !nextLocalHandledRef.current) {
+                setShowNextLocal(true);
+              }
+            }}
             onPause={() => setIsPlaying(false)}
             onPlay={() => {
               setIsPlaying(true);
@@ -1037,7 +1050,7 @@ export function Player() {
             }}
             onEnded={() => {
               if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
-              if (nextLocal) setShowNextLocal(true);
+              if (nextLocal && !nextLocalHandledRef.current) setShowNextLocal(true);
             }}
           >
             {extSubUrl && <track key={extSubUrl} src={extSubUrl} kind="subtitles" label="Externo" default />}
@@ -1047,7 +1060,7 @@ export function Player() {
             <NextEpisodeOverlay
               title={nextLocal.name.replace(/\.[^.]+$/, "")}
               onPlay={playNextLocal}
-              onCancel={() => setShowNextLocal(false)}
+              onCancel={dismissNextLocal}
             />
           )}
 
