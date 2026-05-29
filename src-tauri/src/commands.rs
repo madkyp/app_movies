@@ -949,6 +949,70 @@ fn extract_years(s: &str) -> Vec<i32> {
     years
 }
 
+// Fold common accented characters to ASCII so "Obsesión" matches "Obsesion".
+fn fold_accents(c: char) -> char {
+    match c {
+        'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
+        'é' | 'è' | 'ë' | 'ê' => 'e',
+        'í' | 'ì' | 'ï' | 'î' => 'i',
+        'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+        'ú' | 'ù' | 'ü' | 'û' => 'u',
+        'ñ' => 'n',
+        'ç' => 'c',
+        other => other,
+    }
+}
+
+// Normalize for prefix matching: lowercase, fold accents, separators → spaces, collapse, trim.
+fn normalize_for_match(s: &str) -> String {
+    let spaced: String = s
+        .to_lowercase()
+        .chars()
+        .map(fold_accents)
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// Strip leading "[group]" / "(tag)" prefixes commonly prepended to release names.
+fn strip_leading_brackets(s: &str) -> &str {
+    let mut s = s.trim();
+    loop {
+        if s.starts_with('[') {
+            if let Some(i) = s.find(']') { s = s[i + 1..].trim_start(); continue; }
+        }
+        if s.starts_with('(') {
+            if let Some(i) = s.find(')') { s = s[i + 1..].trim_start(); continue; }
+        }
+        break;
+    }
+    s
+}
+
+// Count significant query words (len>2, not a stopword) to decide if a title is "short".
+fn significant_word_count(query: &str) -> usize {
+    const STOPWORDS: &[&str] = &[
+        "the", "a", "an", "and", "of", "in", "on", "at", "to", "for",
+        "is", "it", "its", "be", "as", "by", "or", "from", "with", "that",
+        "el", "la", "los", "las", "de", "del", "en", "y", "e", "un", "una",
+        "le", "les", "du", "des", "et",
+    ];
+    query.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 2 && !STOPWORDS.contains(w))
+        .count()
+}
+
+// True when the (bracket-stripped, normalized) title begins with the query phrase
+// at a word boundary. Used to reject titles where the query word is only a
+// secondary word (e.g. "Maids Obsession" for a movie called "Obsession").
+fn title_starts_with_query(title: &str, query: &str) -> bool {
+    let nq = normalize_for_match(query);
+    if nq.is_empty() { return true; }
+    let nt = normalize_for_match(strip_leading_brackets(title));
+    nt == nq || nt.starts_with(&format!("{} ", nq))
+}
+
 // True when the title clearly belongs to a different year than the target movie.
 // Years that also appear in the query (e.g. "Blade Runner 2049") are ignored so
 // they aren't mistaken for a release year. Only rejects when the title has a
@@ -1039,9 +1103,15 @@ pub async fn search_yts(query: String, imdb_id: Option<String>, year: Option<i32
     if let Ok(mut v) = torrentio { all.append(&mut v); }
 
     // Movie-specific noise filtering for non-trusted (text-search) results:
-    // drop series episodes and titles from a clearly different year.
+    //  - drop series episodes (SxxExx)
+    //  - drop titles from a clearly different year
+    //  - for short titles (≤2 significant words), require the title to START with
+    //    the query so a secondary-word match ("Maids Obsession") is rejected.
+    let short_title = significant_word_count(&core) <= 2;
     all.retain(|s| s.trusted
-        || (!title_has_episode_marker(&s.title) && !year_mismatch(&s.title, &core, year)));
+        || (!title_has_episode_marker(&s.title)
+            && !year_mismatch(&s.title, &core, year)
+            && (!short_title || title_starts_with_query(&s.title, &core))));
 
     Ok(merge_and_sort(all, &core))
 }
