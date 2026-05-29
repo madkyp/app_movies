@@ -506,14 +506,16 @@ async fn h_play_plex(
 struct YoutubePlayParams {
     video: String,
     audio: String,
+    start: Option<f64>,
 }
 
 async fn h_play_youtube(Query(params): Query<YoutubePlayParams>) -> Response {
+    let start_secs = params.start.unwrap_or(0.0);
     let (vcodec, _) = probe_codecs(&params.video).await;
     let (_, acodec) = probe_codecs(&params.audio).await;
     let can_copy_video = vcodec == "h264";
     let can_copy_audio = acodec == "aac";
-    log::warn!("[ffmpeg-yt] vcodec={vcodec} acodec={acodec} copy_v={can_copy_video} copy_a={can_copy_audio}");
+    log::warn!("[ffmpeg-yt] vcodec={vcodec} acodec={acodec} copy_v={can_copy_video} copy_a={can_copy_audio} start={start_secs}");
 
     let reconnect = [
         "-reconnect".to_string(), "1".into(),
@@ -521,15 +523,22 @@ async fn h_play_youtube(Query(params): Query<YoutubePlayParams>) -> Response {
         "-reconnect_delay_max".into(), "5".into(),
         "-reconnect_on_network_error".into(), "1".into(),
     ];
+    let seek: Vec<String> = if start_secs > 0.5 {
+        vec!["-ss".into(), format!("{:.3}", start_secs)]
+    } else {
+        vec![]
+    };
 
     let mut args: Vec<String> = vec!["-v".into(), "error".into()];
     if !can_copy_video {
         args.extend(["-hwaccel".into(), "auto".into()]);
     }
-    // Reconnect options are per-input → repeat before each -i.
+    // Reconnect + seek options are per-input → repeat before each -i.
     args.extend(reconnect.clone());
+    args.extend(seek.clone());
     args.extend(["-i".into(), params.video]);
     args.extend(reconnect);
+    args.extend(seek);
     args.extend(["-i".into(), params.audio]);
     args.extend([
         "-map".into(), "0:v:0".into(),

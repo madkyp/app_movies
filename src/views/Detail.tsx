@@ -6,6 +6,7 @@ import { useStore } from "../store/useStore";
 import { usePlexMatch, usePlexConfig, plexStreamUrl } from "../hooks/usePlex";
 import { useMediaReviews } from "../hooks/useTmdb";
 import { getBackdropUrl, getPosterUrl, getYear, formatRuntime, getRatingColor, cn } from "../lib/utils";
+import { TrailerPlayer } from "../components/player/TrailerPlayer";
 import type { MediaDetail } from "../types";
 
 // Isolated so the Plex hook only runs when media is guaranteed non-null
@@ -88,7 +89,7 @@ function ReviewCard({ review }: { review: { id: string; author: string; content:
 
 export function Detail() {
   const [trailerState, setTrailerState] = useState<'idle' | 'loading' | 'video' | 'iframe'>('idle');
-  const [trailerUrl, setTrailerUrl]       = useState<string | null>(null);
+  const [trailerStream, setTrailerStream] = useState<{ url: string; duration: number; muxed: boolean } | null>(null);
   const { selectedMedia: media, setView, addToWatchlist, removeFromWatchlist, isInWatchlist, detailReturnView, setDetailReturnView, setLocalFileUrl } = useStore();
   const mediaType = (media as any)?.media_type as "movie" | "tv" | undefined;
   const { reviews } = useMediaReviews(media?.id ?? null, mediaType ?? "movie");
@@ -246,8 +247,8 @@ export function Detail() {
                       onClick={async () => {
                         setTrailerState('loading');
                         try {
-                          const url = await invoke<string>('get_youtube_stream_url', { videoId: trailer.key });
-                          setTrailerUrl(url);
+                          const s = await invoke<{ url: string; duration: number; muxed: boolean }>('get_youtube_stream_url', { videoId: trailer.key });
+                          setTrailerStream(s);
                           setTrailerState('video');
                         } catch {
                           setTrailerState('iframe');
@@ -277,13 +278,12 @@ export function Detail() {
                     </div>
                   )}
 
-                  {/* Reproducción directa vía yt-dlp */}
-                  {trailerState === 'video' && trailerUrl && (
-                    <video
-                      className="absolute inset-0 w-full h-full"
-                      src={trailerUrl}
-                      autoPlay
-                      controls
+                  {/* Reproducción vía yt-dlp (mux 1080p con barra propia, o directo) */}
+                  {trailerState === 'video' && trailerStream && (
+                    <TrailerPlayer
+                      url={trailerStream.url}
+                      durationSecs={trailerStream.duration}
+                      muxed={trailerStream.muxed}
                       onError={() => setTrailerState('iframe')}
                     />
                   )}

@@ -89,17 +89,26 @@ fn proc_cmd(bin: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
     c
 }
 
+#[derive(Serialize)]
+pub struct TrailerStream {
+    /// Playable URL (ffmpeg mux endpoint when 1080p, or a direct progressive URL).
+    pub url: String,
+    /// Duration in seconds (0 when unknown).
+    pub duration: f64,
+    /// True when `url` points to the local ffmpeg muxer (supports ?start= HTTP-seek).
+    pub muxed: bool,
+}
+
 #[tauri::command]
-pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> {
+pub async fn get_youtube_stream_url(video_id: String) -> Result<TrailerStream, String> {
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
     // Prefer 1080p H264 video + m4a/AAC audio as SEPARATE streams (YouTube only
-    // serves ≤720p as a single progressive file). --get-url then prints two lines
-    // (video, then audio) which we mux on the fly via the local ffmpeg server.
-    // Falls back to single-file 720p/360p when a merged 1080p set isn't available.
+    // serves ≤720p as a single progressive file); we mux them via the local ffmpeg
+    // server. Falls back to single-file 720p/360p when no 1080p set is available.
     let format = "bestvideo[height<=1080][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/\
                   bestvideo[height<=1080][ext=mp4]+bestaudio/22/18/best[ext=mp4]/best";
     let out = proc_cmd(ytdlp_bin())
-        .args(["-f", format, "--get-url", "--no-playlist", &url])
+        .args(["-f", format, "-j", "--no-playlist", &url])
         .output()
         .await
         .map_err(|_| "yt-dlp no encontrado".to_string())?;
@@ -110,18 +119,35 @@ pub async fn get_youtube_stream_url(video_id: String) -> Result<String, String> 
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let urls: Vec<&str> = stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-    match urls.as_slice() {
-        // Two streams → route through the ffmpeg muxer so the <video> gets one MP4.
-        [video, audio, ..] => Ok(format!(
-            "http://127.0.0.1:7777/play/youtube?video={}&audio={}",
-            urlencoding::encode(video),
-            urlencoding::encode(audio),
-        )),
-        // Single progressive stream → play directly.
-        [single] => Ok(single.to_string()),
-        [] => Err("yt-dlp no devolvió ninguna URL".to_string()),
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|_| "yt-dlp: respuesta no válida".to_string())?;
+    let duration = json["duration"].as_f64().unwrap_or(0.0);
+
+    // Merged selection → requested_formats = [video, audio] → route through muxer.
+    if let Some(formats) = json["requested_formats"].as_array() {
+        if formats.len() >= 2 {
+            let video = formats[0]["url"].as_str().unwrap_or("");
+            let audio = formats[1]["url"].as_str().unwrap_or("");
+            if !video.is_empty() && !audio.is_empty() {
+                return Ok(TrailerStream {
+                    url: format!(
+                        "http://127.0.0.1:7777/play/youtube?video={}&audio={}",
+                        urlencoding::encode(video),
+                        urlencoding::encode(audio),
+                    ),
+                    duration,
+                    muxed: true,
+                });
+            }
+        }
     }
+
+    // Single progressive stream → play directly.
+    let single = json["url"].as_str().unwrap_or("");
+    if single.is_empty() {
+        return Err("yt-dlp no devolvió ninguna URL".to_string());
+    }
+    Ok(TrailerStream { url: single.to_string(), duration, muxed: false })
 }
 
 // ─── Shared State ─────────────────────────────────────────────────────────────
